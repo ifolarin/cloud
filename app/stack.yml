@@ -1,0 +1,93 @@
+version: '3.8'
+
+networks:
+  frontend:
+    external: true
+  pg_network:
+    external: true
+
+x-postgres-common:
+  &postgres-common
+  image: postgres:14-alpine
+  user: postgres
+  restart: unless-stopped
+  shm_size: 128mb
+  healthcheck:
+    test: 'pg_isready -U user --dbname=postgres'
+    interval: 10s
+    timeout: 5s
+    retries: 5
+
+services:
+  web:
+    container_name: web
+    image: nginx:latest
+    networks:
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web-app.rule=Host(`enumverse.local`)"
+      - "traefik.http.routers.web-app.entrypoints=websecure"
+    restart: unless-stopped
+
+  api:
+    container_name: api
+    image: nginx:latest
+    networks:
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web-api.entrypoints=websecure"
+      - "traefik.http.routers.web-api.rule=Host(`enumverse.local`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.web-api.middlewares=my-app-stripprefix"
+      - "traefik.http.middlewares.my-app-stripprefix.stripprefix.prefixes=/api"
+      - "traefik.http.services.web-api.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+
+
+  postgres_primary:
+    <<: *postgres-common
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 md5"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      PGDATA: "/data"
+    command: |
+      postgres 
+      -D /data
+      -c wal_level=replica 
+      -c hot_standby=on 
+      -c max_wal_senders=10 
+      -c max_replication_slots=10 
+      -c hot_standby_feedback=on
+    volumes:
+      - ./00_init.sql:/docker-entrypoint-initdb.d/00_init.sql
+
+  postgres_replica:
+    <<: *postgres-common
+    ports:
+      - 5433:5432
+    environment:
+      PGUSER: replicator
+      PGPASSWORD: replicator_password
+      PGDATA: "/data"
+    command: |
+      bash -c "
+      mkdir -p /data
+      until pg_basebackup --pgdata=/data -R --slot=replication_slot --host=postgres_primary --port=5432
+      do
+      echo 'Waiting for primary to connect...'
+      sleep 1s
+      done
+      echo 'Backup done, starting replica...'
+      chmod 0700 /data
+      postgres -D /data
+      "
+    depends_on:
+      - postgres_primary
+

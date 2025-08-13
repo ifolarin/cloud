@@ -1,0 +1,66 @@
+version: '3.8'
+services:
+  traefik:
+    image: docker.io/library/traefik:v3.5.0
+    container_name: traefik
+    ports:
+      - 80:80
+      - 443:443
+      # --> (Optional) Enable Dashboard, don't do in production
+      - 8080:8080
+      # <--
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${VOLUME:?ERROR ENV VAR VOLUME NOT SET}/config/:/etc/traefik/:ro
+      - ${VOLUME:?ERROR ENV VAR VOLUME NOT SET}/certs/:/var/traefik/certs/:rw
+      # - ${VOLUME:?ERROR ENV VAR VOLUME NOT SET}/letsencrypt:/letsencrypt:rw
+      # - ${VOLUME:?ERROR ENV VAR VOLUME NOT SET}/data:/data:rw
+    environment:
+      - CF_DNS_API_TOKEN=your-cloudflare-api-token  # <-- Change this to your Cloudflare API Token
+    networks:
+      - frontend
+    restart: unless-stopped
+    command:
+      # Global
+      - "--global.checkNewVersion=false"
+      - "--global.sendAnonymousUsage=false"
+      # Debug & logging
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-DEBUG}"
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      # - "--log.filePath=/data/traefik.log"
+      - "--accesslog=true"
+      # - "--accesslog.filePath=/data/access.log"
+      # Common Properties
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=frontend"
+      # Docker socket
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      # - "--providers.file.filename=/data/rules.yml"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.http.tls=true"
+      # SSL/TLS Properties
+      # - "--entrypoints.web.http.tls.certResolver=myresolver"
+      # - "--entrypoints.websecure.http.tls.certResolver=myresolver"
+      # - "--entrypoints.websecure.http.tls.domains[0].main=${DOMAIN}"
+      # - "--entrypoints.websecure.http.tls.domains[0].sans=*.${DOMAIN}"
+      # - "--certificatesresolvers.myresolver.acme.email=myemail@gmail.com"
+      # - "--certificatesresolvers.myresolver.acme.storage=/data/acme.json"
+      # - "--certificatesresolvers.myresolver.acme.dnschallenge.provider=duckdns"
+      - "--serverstransport.insecureskipverify=true"
+    # labels:
+      # - "traefik.enable=true"
+      # - "traefik.backend=dashboard"
+      # - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+      # - "traefik.http.routers.traefik.entrypoints=websecure"
+      # - "traefik.http.routers.traefik.middlewares=authelia@docker"
+      # - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+
+networks:
+  frontend:
+    external: true  # <-- (Optional) Change this to false if you want to create a new network
