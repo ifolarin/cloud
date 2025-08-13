@@ -1,29 +1,41 @@
 version: '3.8'
 
-networks:
-  frontend:
-    external: true
-  pg_network:
-    external: true
-
 x-postgres-common:
   &postgres-common
-  image: postgres:14-alpine
+  image: postgres:16.9-alpine3.22
   user: postgres
   restart: unless-stopped
   shm_size: 128mb
+  deploy:
+    resources:
+      limits:
+        cpus: '0.50'
+        memory: 1G
+        pids: 1
+      reservations:
+        cpus: '0.25'
+        memory: 128M
+
   healthcheck:
     test: 'pg_isready -U user --dbname=postgres'
     interval: 10s
     timeout: 5s
     retries: 5
+  networks:
+    - app_backend_network
+
+networks:
+  app_frontend_network:
+    external: true
+  app_backend_network:
+    external: true
 
 services:
   web:
     container_name: web
     image: nginx:latest
     networks:
-      - frontend
+      - app_frontend_network
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-app.rule=Host(`enumverse.local`)"
@@ -34,7 +46,8 @@ services:
     container_name: api
     image: nginx:latest
     networks:
-      - frontend
+      - app_frontend_network
+      - app_backend_network
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-api.entrypoints=websecure"
@@ -44,29 +57,26 @@ services:
       - "traefik.http.services.web-api.loadbalancer.server.port=80"
     restart: unless-stopped
 
-
-
   postgres_primary:
-    <<: *postgres-common
-    ports:
-      - 5432:5432
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_DB: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 md5"
-      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
-      PGDATA: "/data"
-    command: |
-      postgres 
-      -D /data
-      -c wal_level=replica 
-      -c hot_standby=on 
-      -c max_wal_senders=10 
-      -c max_replication_slots=10 
-      -c hot_standby_feedback=on
-    volumes:
-      - ./00_init.sql:/docker-entrypoint-initdb.d/00_init.sql
+      <<: *postgres-common
+      ports:
+        - 5432:5432
+      environment:
+        POSTGRES_USER: user
+        POSTGRES_DB: postgres
+        POSTGRES_PASSWORD: password
+        POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 md5"
+        POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      command: |
+        postgres 
+        -c wal_level=replica 
+        -c hot_standby=on 
+        -c max_wal_senders=10 
+        -c max_replication_slots=10 
+        -c hot_standby_feedback=on
+      volumes:
+        - ${PWD}/scripts/primary/00_init_primary.sql:/docker-entrypoint-initdb.d/00_init.sql
+        - ${PWD}/pgdata/primary:/var/lib/postgresql/data
 
   postgres_replica:
     <<: *postgres-common
@@ -75,19 +85,21 @@ services:
     environment:
       PGUSER: replicator
       PGPASSWORD: replicator_password
-      PGDATA: "/data"
+    volumes:
+      - ${PWD}/pgdata/replica:/var/lib/postgresql/data
     command: |
       bash -c "
-      mkdir -p /data
-      until pg_basebackup --pgdata=/data -R --slot=replication_slot --host=postgres_primary --port=5432
+      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=postgres_primary --port=5432
       do
       echo 'Waiting for primary to connect...'
       sleep 1s
       done
       echo 'Backup done, starting replica...'
-      chmod 0700 /data
-      postgres -D /data
+      chmod 0700 /var/lib/postgresql/data
+      postgres
       "
     depends_on:
-      - postgres_primary
+      postgres_primary:
+        condition: service_healthy
+
 
