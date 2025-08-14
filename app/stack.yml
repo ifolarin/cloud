@@ -1,53 +1,102 @@
 version: '3.8'
 
-x-postgres-common:
-  &postgres-common
-  image: postgres:16.9-alpine3.22
-  user: postgres
-  restart: unless-stopped
-  shm_size: 128mb
-  deploy:
+x-deploy-replica-common:
+  # deploy:
+  &deploy-replica-common
+  mode: replicated
+  replicas: 2
+
+x-deploy-cpu-common:
+  # deploy: 
+  &deploy-cpu-common
+    resources:
+      limits:
+        cpus: '0.20'
+        memory: 256M
+        # pids: 1
+
+x-deploy-runtime-common:
+  # deploy: this should be inserted under the deploy section
+  &deploy-runtime-common
+    update_config:
+      failure_action: rollback
+      order: start-first
+      delay: 10s
+    rollback_config:
+      parallelism: 1
+      delay: 10s
+      monitor: 10s
+    restart_policy:
+      condition: on-failure
+      delay: 10s
+      max_attempts: 5
+      window: 60s
+
+x-postgres-deploy-cpu:
+  # deploy:
+  &postgres-deploy-cpu
     resources:
       limits:
         cpus: '0.50'
         memory: 1G
-        pids: 1
+        # pids: 1
       reservations:
-        cpus: '0.25'
         memory: 128M
 
+x-postgres-common:
+  &postgres-common
+  image: postgres:17.5
+  user: postgres
+  # restart: unless-stopped
+  # shm_size: 128mb
   healthcheck:
-    test: 'pg_isready -U user --dbname=postgres'
+    test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:?ERROR ENV POSTGRES_USER NOT SET} --dbname=$${POSTGRES_DB:?ERROR ENV POSTGRES_DB NOT SET}"]
     interval: 10s
     timeout: 5s
     retries: 5
   networks:
-    - app_backend_network
+    - enumverse_backend
+
+x-api-healthcheck:
+  &api-healthcheck
+  healthcheck:
+     test: ["CMD", "curl", "--fail", "http://localhost:8080/actuator/health"]
+     interval: 30s
+     timeout: 10s
+     retries: 5
+     start_period: 20s
 
 networks:
-  app_frontend_network:
+  enumverse_frontend:
     external: true
-  app_backend_network:
+  enumverse_backend:
     external: true
 
 services:
   web:
-    container_name: web
+    # container_name: web
     image: nginx:latest
+    deploy:
+      <<: *deploy-cpu-common
+      <<: *deploy-replica-common
+      <<: *deploy-runtime-common
     networks:
-      - app_frontend_network
+      - enumverse_frontend
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-app.rule=Host(`enumverse.local`)"
       - "traefik.http.routers.web-app.entrypoints=websecure"
-    restart: unless-stopped
 
   api:
-    container_name: api
+    # container_name: api
     image: nginx:latest
+    deploy:
+      <<: *deploy-cpu-common
+      <<: *deploy-replica-common
+      <<: *deploy-runtime-common
     networks:
-      - app_frontend_network
-      - app_backend_network
+      - enumverse_frontend
+      - enumverse_backend
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-api.entrypoints=websecure"
@@ -55,18 +104,27 @@ services:
       - "traefik.http.routers.web-api.middlewares=my-app-stripprefix"
       - "traefik.http.middlewares.my-app-stripprefix.stripprefix.prefixes=/api"
       - "traefik.http.services.web-api.loadbalancer.server.port=80"
-    restart: unless-stopped
+    # restart: unless-stopped
 
   postgres_primary:
       <<: *postgres-common
-      ports:
-        - 5432:5432
+      deploy:
+        <<: *postgres-deploy-cpu
+        <<: *deploy-runtime-common
+      # ports:
+      #   - 5432:5432
       environment:
-        POSTGRES_USER: user
-        POSTGRES_DB: postgres
-        POSTGRES_PASSWORD: password
+        POSTGRES_USER: ${POSTGRES_USER?ERROR ENV POSTGRES_USER NOT SET}
+        POSTGRES_DB: ${POSTGRES_DB:?ERROR ENV POSTGRES_DB NOT SET}
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?ERROR ENV POSTGRES_PASSWORD NOT SET}
         POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 md5"
         POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+        PGUSER: ${PGUSER:?ERROR ENV PGUSER NOT SET}
+        PGPASSWORD: "${PGPASSWORD:?ERROR ENV PGPASSWORD NOT SET}"
+        KC_DB_NAME: ${KC_DB_NAME:?ERROR ENV KC_DB_NAME NOT SET}
+        KC_DB_USERNAME: ${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
+        KC_DB_PASSWORD: ${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
+        TZ: "Africa/Lagos"
       command: |
         postgres 
         -c wal_level=replica 
@@ -75,31 +133,73 @@ services:
         -c max_replication_slots=10 
         -c hot_standby_feedback=on
       volumes:
-        - ${PWD}/scripts/primary/00_init_primary.sql:/docker-entrypoint-initdb.d/00_init.sql
-        - ${PWD}/pgdata/primary:/var/lib/postgresql/data
+        - ${DATA_VOLUME:?ERROR ENV DATA_VOLUME NOT SET}/util/postgres/primary/00_init_primary.sql:/docker-entrypoint-initdb.d/00_init.sql
+        - ${DATA_VOLUME:?ERROR ENV DATA_VOLUME NOT SET}/util/keycloak/init-keycloak-db.sh:/docker-entrypoint-initdb.d/01_init_keycloak_db.sh
+        - ${DATA_VOLUME:?ERROR ENV DATA_VOLUME NOT SET}/data/postgres/primary/pgdata:/var/lib/postgresql/data
 
   postgres_replica:
     <<: *postgres-common
-    ports:
-      - 5433:5432
+    deploy:
+      <<: *postgres-deploy-cpu
+      <<: *deploy-runtime-common
+    # ports:
+    #   - 5433:5432
     environment:
-      PGUSER: replicator
-      PGPASSWORD: replicator_password
+      PGUSER: ${PGUSER:?ERROR ENV PGUSER NOT SET}
+      PGPASSWORD: ${PGPASSWORD:?ERROR ENV PGPASSWORD NOT SET}
+      TZ: "Africa/Lagos"
     volumes:
-      - ${PWD}/pgdata/replica:/var/lib/postgresql/data
+      - ${DATA_VOLUME:?ERROR ENV DATA_VOLUME NOT SET}/data/postgres/replica/pgdata:/var/lib/postgresql/data
     command: |
       bash -c "
-      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=postgres_primary --port=5432
-      do
-      echo 'Waiting for primary to connect...'
-      sleep 1s
-      done
-      echo 'Backup done, starting replica...'
-      chmod 0700 /var/lib/postgresql/data
+      if [ ! -d '/var/lib/postgresql/data' ]; then 
+        until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=postgres_primary --port=5432
+        do
+        echo 'Waiting for primary to connect...'
+        sleep 1s
+        done
+        echo 'Backup done, starting replica...'
+        chmod 0700 /var/lib/postgresql/data
+      fi
       postgres
       "
     depends_on:
-      postgres_primary:
-        condition: service_healthy
+      - postgres_primary
+        # condition: service_healthy
 
+  keycloak:
+    #image: quay.io/keycloak/keycloak:26.0.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: keycloak_app
+    deploy:
+      <<: *deploy-runtime-common
+    ports:
+      - 8280:8443
+      - 8082:8080
+      - 9000:9000
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:?ERROR ENV KC_BOOTSTRAP_ADMIN_USERNAME NOT SET}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:?ERROR ENV KC_BOOTSTRAP_ADMIN_PASSWORD NOT SET}
+      # - KC_DB_URL_HOST=${POSTGRES_HOST:?ERROR ENV POSTGRES_HOST NOT SET}
+      - KC_DB_URL=jdbc:postgresql://${POSTGRES_HOST:?ERROR ENV POSTGRES_HOST NOT SET}:${POSTGRES_PORT?:ERROR ENV POSTGRES_PORT NOT SET}/${KC_DB_NAME?:ERROR ENV KC_DB_NAME NOT SET}
+      - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
+      - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
+    volumes:
+      - ${DATA_VOLUME:?ERROR ENV DATA_VOLUME NOT SET}/data/keycloak/kcdata:/opt/keycloak/data
+      - ${DATA_VOLUME:?ERROR ENV DATA_VOLUME NOT SET}/util/keycloak/enumverse-realm-export.json:/opt/keycloak/data/import/enumverse-realm.json
+    command: start --import-realm --optimized --http-enabled true --hostname ${KC_HOSTNAME:?ERROR ENV KC_HOSTNAME NOT SET} --hostname-backchannel-dynamic true --proxy-headers xforwarded
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health/live"]
+      # interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - enumverse_frontend
+      - enumverse_backend
+    depends_on:
+      db:
+        condition: service_healthy
 
