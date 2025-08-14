@@ -2,7 +2,6 @@ version: '3.8'
 services:
   traefik:
     image: docker.io/library/traefik:v3.5.0
-    container_name: traefik
     ports:
       - 80:80
       - 443:443
@@ -18,7 +17,7 @@ services:
     environment:
       - CF_DNS_API_TOKEN=your-cloudflare-api-token  # <-- Change this to your Cloudflare API Token
     networks:
-      - frontend
+      - enumverse_frontend
     restart: unless-stopped
     command:
       # Global
@@ -62,5 +61,5 @@ services:
       # - "traefik.http.services.traefik.loadbalancer.server.port=8080"
 
 networks:
-  frontend:
+  enumverse_frontend:
     external: true  # <-- (Optional) Change this to false if you want to create a new network
