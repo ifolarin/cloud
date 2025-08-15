@@ -77,8 +77,12 @@ services:
 
   # Init cluster metadata
   pulsar-init:
-    hostname: pulsar-init
     <<: *pulsar-common
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 3G
     networks:
       - enumverse_pulsar
     command:
