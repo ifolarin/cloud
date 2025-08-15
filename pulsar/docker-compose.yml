@@ -1,22 +1,64 @@
-version: '3'
 networks:
-  pulsar:
-    driver: bridge
+  enumverse_pulsar:
+    external: true
 
 x-pulsar-common:
   &pulsar-common
   image: apachepulsar/pulsar:4.0.6
 
+x-instance-micro:
+  # deploy: this should be inserted under the deploy section
+  &instance-micro
+  resources:
+    limits:
+      cpus: '0.25'
+      memory: 256M
+
+x-runtime-common:
+  # deploy: this should be inserted under the deploy section
+  &runtime-common
+  update_config:
+    failure_action: rollback
+    order: start-first
+    delay: 10s
+  rollback_config:
+    parallelism: 1
+    delay: 10s
+    monitor: 10s
+  restart_policy:
+    condition: on-failure
+    delay: 10s
+    max_attempts: 5
+    window: 60s
+
 services:
   # Start zookeeper
   zookeeper:
     <<: *pulsar-common
-    container_name: zookeeper
-    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 1G
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+
+
     networks:
-      - pulsar
+      - enumverse_pulsar
     volumes:
-      - ${PULSAR_DATA_VOLUME:?ERROR ENV PULSAR_DATA_VOLUME NOT SET}/zookeeper:/pulsar/data/zookeeper
+      - ./data/zookeeper:/pulsar/data/zookeeper
     environment:
       - metadataStoreUrl=zk:zookeeper:2181
       - PULSAR_MEM=-Xms256m -Xmx256m -XX:MaxDirectMemorySize=256m
@@ -35,12 +77,10 @@ services:
 
   # Init cluster metadata
   pulsar-init:
-    container_name: pulsar-init
     hostname: pulsar-init
     <<: *pulsar-common
-    image: apachepulsar/pulsar:latest
     networks:
-      - pulsar
+      - enumverse_pulsar
     command:
       - bash
       - -c 
@@ -52,16 +92,33 @@ services:
         --web-service-url http://broker:8080 \
         --broker-service-url pulsar://broker:6650
     depends_on:
-      zookeeper:
-        condition: service_healthy
+      - zookeeper
+       
 
   # Start bookie
   bookie:
     <<: *pulsar-common
-    container_name: bookie
-    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 1G
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+
     networks:
-      - pulsar
+      - enumverse_pulsar
     environment:
       - clusterName=cluster-a
       - zkServers=zookeeper:2181
@@ -71,23 +128,38 @@ services:
       - advertisedAddress=bookie
       - BOOKIE_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
     depends_on:
-      zookeeper:
-        condition: service_healthy
-      pulsar-init:
-        condition: service_completed_successfully
+      - zookeeper
+      - pulsar-init
     # Map the local directory to the container to avoid bookie startup failure due to insufficient container disks.
     volumes:
-      - ${PULSAR_DATA_VOLUME:?ERROR ENV PULSAR_DATA_VOLUME NOT SET}/bookkeeper:/pulsar/data/bookkeeper
+      - ./data/bookkeeper:/pulsar/data/bookkeeper
     command: bash -c "bin/apply-config-from-env.py conf/bookkeeper.conf && exec bin/pulsar bookie"
 
   # Start broker
   broker:
     <<: *pulsar-common
-    container_name: broker
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 1G
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+
     hostname: broker
-    restart: on-failure
     networks:
-      - pulsar
+      - enumverse_pulsar
     environment:
       - metadataStoreUrl=zk:zookeeper:2181
       - zookeeperServers=zookeeper:2181
@@ -99,10 +171,8 @@ services:
       - advertisedListeners=external:pulsar://127.0.0.1:6650
       - PULSAR_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
     depends_on:
-      zookeeper:
-        condition: service_healthy
-      bookie:
-        condition: service_started
+      - zookeeper
+      - bookie
     ports:
       - "6650:6650"
       - "8080:8080"
