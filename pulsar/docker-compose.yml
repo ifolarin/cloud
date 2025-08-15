@@ -6,31 +6,6 @@ x-pulsar-common:
   &pulsar-common
   image: apachepulsar/pulsar:4.0.6
 
-x-instance-micro:
-  # deploy: this should be inserted under the deploy section
-  &instance-micro
-  resources:
-    limits:
-      cpus: '0.25'
-      memory: 256M
-
-x-runtime-common:
-  # deploy: this should be inserted under the deploy section
-  &runtime-common
-  update_config:
-    failure_action: rollback
-    order: start-first
-    delay: 10s
-  rollback_config:
-    parallelism: 1
-    delay: 10s
-    monitor: 10s
-  restart_policy:
-    condition: on-failure
-    delay: 10s
-    max_attempts: 5
-    window: 60s
-
 services:
   # Start zookeeper
   zookeeper:
