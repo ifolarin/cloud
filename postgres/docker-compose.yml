@@ -27,9 +27,12 @@ services:
       -c max_wal_senders=10 
       -c max_replication_slots=10 
       -c hot_standby_feedback=on
+      # -c synchronous_commit='*'
+      # -c synchronous_standby_name='*'
+      # -c wal_log_hint=on
     volumes:
-      - ./data/postgres/00_init_primary.sql:/docker-entrypoint-initdb.d/00_init.sql
-      - dbdata:/var/lib/postgresql/data
+      - ./00_init_primary.sql:/docker-entrypoint-initdb.d/00_init.sql
+      - ${DATA_VOLUME?[ERROR] ENV VAR DATA_VOLUME NOT SET!}/postgres/primary/data:/var/lib/postgresql/data
 
   postgres_replica:
     <<: *postgres-common
@@ -38,6 +41,8 @@ services:
     environment:
       PGUSER: replicator
       PGPASSWORD: replicator_password
+    volumes:
+      - ${DATA_VOLUME?[ERROR] ENV VAR DATA_VOLUME NOT SET!}/postgres/replica/data:/var/lib/postgresql/data
     command: |
       bash -c "
       until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=postgres_primary --port=5432
@@ -48,6 +53,7 @@ services:
       echo 'Backup done, starting replica...'
       chmod 0700 /var/lib/postgresql/data
       postgres
+      # - c promote_trigger_file=''
       "
     depends_on:
       - postgres_primary
