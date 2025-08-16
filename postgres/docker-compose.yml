@@ -14,12 +14,9 @@ x-postgres_replica:
   <<: *postgres-common
   # ports:
   #   - 5433:5432
-  environment:
-    PGUSER: replicator
-    PGPASSWORD: replicator_password
   command: |
     bash -c "
-    until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=postgres_primary --port=5432
+    until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=$${REPLICATION_SLOT?[ERROR] ENV VAR REPLICATION SLOT NOT SET} --host=postgres_primary --port=5432
     do
     echo 'Waiting for primary to connect...'
     sleep 1s
@@ -31,6 +28,10 @@ x-postgres_replica:
     "
   depends_on:
     - postgres_primary
+  environment: &replica_environments
+    PGUSER: replicator
+    PGPASSWORD: replicator_password
+    REPLICATION_SLOT: replication_slot
 
 
 services:
@@ -56,12 +57,25 @@ services:
       # -c wal_log_hint=on
     volumes:
       - ./00_init_primary.sql:/docker-entrypoint-initdb.d/00_init.sql
-      - ${DATA_VOLUME?[ERROR] ENV VAR DATA_VOLUME NOT SET!}/postgres/primary/data:/var/lib/postgresql/data
+      - ${DATA_VOLUME?[ERROR] ENV VAR DATA_VOLUME NOT SET!}/postgres/primary/pgdata:/var/lib/postgresql/data
 
   postgres_replica_1:
     <<: *postgres_replica
+    environment:
+      <<: *replica_environments
+      REPLICATION_SLOT: ${REPLICATION_SLOT_1?[ERROR] ENV VAR REPLICATION_SLOT_1 NOT SET}
     volumes:
-      - ${DATA_VOLUME?[ERROR] ENV VAR DATA_VOLUME NOT SET!}/postgres/replica/data:/var/lib/postgresql/data
+      - ${DATA_VOLUME?[ERROR] ENV VAR DATA_VOLUME NOT SET!}/postgres/replica-1/pgdata:/var/lib/postgresql/data
+
+
+  postgres_replica_2:
+    <<: *postgres_replica
+    environment:
+      <<: *replica_environments
+      REPLICATION_SLOT: ${REPLICATION_SLOT_2?[ERROR] ENV VAR REPLICATION_SLOT_2 NOT SET}
+    volumes:
+      - ${DATA_VOLUME?[ERROR] ENV VAR DATA_VOLUME NOT SET!}/postgres/replica-2/pgdata:/var/lib/postgresql/data
+
 
 
 volumes:
