@@ -3,6 +3,6 @@
 set -a # automatically export all variables
 source ./.env 
 set +a # disable autoatic export
-CONFIG="stack.yml"
+CONFIG=${1:-"stack.yml"}
 if [ ! -f $CONFIG ]; then CONFIG="docker-compose.yml"; fi # shellcheck source=path/to/file
-docker stack deploy -c $CONFIG enumverse
+docker stack config -c $CONFIG

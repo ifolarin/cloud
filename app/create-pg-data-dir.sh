@@ -1,0 +1,10 @@
+#!/bin/bash
+set -a
+source ./.env
+set +a
+PGUID=70
+PGGID=70
+mkdir -p ${DATA_VOLUME_PG?[ERROR] ENV VAR DATA_VOLUME_PG NOT SET}/pg-0/pgdata
+mkdir -p ${DATA_VOLUME_PG?[ERROR] ENV VAR DATA_VOLUME_PG NOT SET}/pg-1/pgdata
+mkdir -p ${DATA_VOLUME_PG?[ERROR] ENV VAR DATA_VOLUME_PG NOT SET}/pg-2/pgdata
+chown -R $PGUID:$PGGID ${DATA_VOLUME_PG?[ERROR] ENV VAR DATA_VOLUME_PG NOT SET}
