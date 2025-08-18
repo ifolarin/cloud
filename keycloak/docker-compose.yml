@@ -47,9 +47,8 @@ services:
       - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
       - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
     volumes:
-      # - ${DATA_VOLUME_KC:?ERROR DATA_VOLUME_KC NOT SET}/data:/opt/keycloak/data
+      - ${DATA_VOLUME_KC:?ERROR DATA_VOLUME_KC NOT SET}/data:/opt/keycloak/data
       - ${CONF_VOLUME:?ERROR CONF_VOLUME NOT SET}/enumverse-realm-export.json:/opt/keycloak/data/import/enumverse-realm-export.json
-      # - ./conf/enumverse-realm-export.json:/opt/keycloak/data/import/enumverse-realm-export.json
     command: start --optimized --verbose --http-enabled true --hostname http://localhost:8082  --hostname-backchannel-dynamic true --proxy-headers xforwarded --import-realm 
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9000/health/live"]

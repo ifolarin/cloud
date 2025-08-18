@@ -1,0 +1,18 @@
+#!/bin/bash
+set -a
+source ./.env
+set +a
+PGUID=70
+PGGID=70
+mkdir -p ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET}/pg-0/data
+mkdir -p ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET}/pg-1/data
+mkdir -p ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET}/pg-2/data
+
+# chown -R $PGUID:$PGGID ${DATA_VOLUME_PG}
+chmod -R 0777 ${DATA_VOLUME_PG}
+
+mkdir -p ${DATA_VOLUME_KC:?[ERROR] DATA_VOLUME_KC NOT SET}/data
+chmod -R 0777 ${DATA_VOLUME_KC}
+
+mkdir -p ${CONF_VOLUME:?[ERROR] CONF_VOLUME NOT SET}
+chmod -R 0777 ${CONF_VOLUME}
