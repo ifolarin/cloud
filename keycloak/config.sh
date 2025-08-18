@@ -1,0 +1,8 @@
+#!/bin/bash
+# docker stack deploy --with-registry-auth -c stack.yml enumverse
+set -a # automatically export all variables
+source ./.env 
+set +a # disable autoatic export
+CONFIG=${1:-"stack.yml"}
+if [ ! -f $CONFIG ]; then CONFIG="docker-compose.yml"; fi # shellcheck source=path/to/file
+docker stack config -c $CONFIG
