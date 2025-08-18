@@ -1,0 +1,111 @@
+version: '3.8'
+services:
+  traefik:
+    image: docker.io/library/traefik:v3.5.0
+    ports:
+      - 80:80
+      - 443:443
+      # --> (Optional) Enable Dashboard, don't do in production
+      - 8080:8080
+      # <--
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/config:/etc/traefik:ro
+      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/certs:/etc/certs:ro
+      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/data:/data
+    environment:
+      - TZ=Africa/Lagos
+      - DOMAIN=enumverse.dev
+      - CF_DNS_API_TOKEN=your-cloudflare-api-token  # <-- Change this to your Cloudflare API Token
+    networks:
+      - edge
+      - enumverse_frontend_net
+    restart: unless-stopped
+    command:
+      # Global
+      - "--global.checkNewVersion=false"
+      - "--global.sendAnonymousUsage=false"
+
+      # Observability Debug & logging
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-DEBUG}"
+      - "--accesslog=true"
+      - "--metrics.prometheus=true"
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      # - "--log.filePath=/data/traefik.log"
+      - "--accesslog.filePath=/data/access.log"
+
+      # Common Properties
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      # - "--providers.docker.network=frontend"
+      # Docker socket
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+
+      # Enable Docker Swarm Provider 
+      - "--providers.swarm.endpoint=unix:///var/run/docker.sock"
+      # - "--providers.file.filename=/data/rules.yml"
+      # Watch for Swarm service changes
+      - "--providers.swarm.watch=true"
+      - "--providers.swarm.exposedbydefault=false"
+
+      # Default network for swarm to connect to services
+      - "--providers.swarm.network=enumverse_frontend_net"
+      
+      # Dynamic configuation file provider 
+      - "--providers.file.directory=/etc/traefik"
+      - "--providers.file.watch=true"
+
+      # HTTP Entrypoints
+      - "--entrypoints.web.address=:80"
+      
+      # HTTP to HTTPS redirection
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entryPoint.permanent=true"
+      
+      # HTTPS Entrypoint
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.http.tls=true"
+
+      # SSL/TLS Properties
+      # - "--entrypoints.web.http.tls.certResolver=myresolver"
+      # - "--entrypoints.websecure.http.tls.certResolver=myresolver"
+      # - "--entrypoints.websecure.http.tls.domains[0].main=${DOMAIN}"
+      # - "--entrypoints.websecure.http.tls.domains[0].sans=*.${DOMAIN}"
+      # - "--certificatesresolvers.myresolver.acme.email=myemail@gmail.com"
+      # - "--certificatesresolvers.myresolver.acme.storage=/data/acme.json"
+      # - "--certificatesresolvers.myresolver.acme.dnschallenge.provider=duckdns"
+      # - "--serverstransport.insecureskipverify=true"
+
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.backend=dashboard"
+        # - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+        - "traefik.http.routers.traefik.rule=Host(`traefik.enumverse.dev`)"
+        - "traefik.http.routers.traefik.entrypoints=websecure"
+        - "traefik.http.routers.traefik.service=api@internal"
+        - "traefik.http.routers.traefik.tls=true"
+        # - "traefik.http.routers.traefik.middlewares=authelia@docker"
+        - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+
+  mkcert:
+    image: vishnunair/docker-mkcert:latest
+    environment:
+      - TZ=Africa/Lagos
+      - domain=*.enumverse.dev
+    volumes:
+      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/certs:/root/.local/share/mkcert
+    labels:
+      - "traefik.enable=false"
+    networks:
+      - edge
+      - enumverse_frontend_net
+
+networks:
+  enumverse_frontend_net:
+    external: true  # <-- (Optional) Change this to false if you want to create a new network
+    attachable: true
+  edge:
+    external: true  

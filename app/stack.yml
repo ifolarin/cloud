@@ -98,6 +98,15 @@ x-api-healthcheck:
      retries: 5
      start_period: 20s
 
+x-web-healthcheck:
+  &web-healthcheck
+  healthcheck:
+     test: ["CMD", "curl", "--fail", "http://localhost"]
+     interval: 30s
+     timeout: 10s
+     retries: 5
+     start_period: 20s
+
 x-pulsar-networks: &pulsar-common-network
   enumverse_pulsar_net
 
@@ -124,6 +133,7 @@ services:
   web:
     # container_name: web
     image: nginx:latest
+    <<: *web-healthcheck
     deploy:
       resources:
         limits:
@@ -155,6 +165,7 @@ services:
   api:
     # container_name: api
     image: nginx:latest
+    # <<: *api-healthcheck
     deploy:
       resources:
         limits:
@@ -198,6 +209,9 @@ services:
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
       PGUSER: ${PGUSER?[ERROR] PGUSER NOT SET}
       PGPASSWORD: ${PGPASSWORD?[ERROR] PGPASSWORD NOT SET}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?ERROR KC_DB_PASSWORD NOT SET}
+      KC_DB_NAME: ${KC_DB_NAME:?ERROR KC_DB_NAME NOT SET}
+      KC_DB_USERNAME: ${KC_DB_USERNAME:?ERROR KC_DB_USERNAME NOT SET}
     command: |
       postgres 
       -c wal_level=replica 
@@ -228,7 +242,7 @@ services:
     volumes:
       - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg-2/pgdata:/var/lib/postgresql/data
 
-  pgpool:
+  pg-pool:
     image: bitnami/pgpool:4.6.2
     ports: # Does not need to be exposed to host only apps on the same docker network
       - 5432
@@ -246,6 +260,8 @@ services:
       # - PGPOOL_ENABLE_LOG_CONNECTIONS=yes
       # - PGPOOL_ENABLE_LOG_PER_NODE_STATEMENT=yes
       # - PGPOOL_ENABLE_LOG_HOSTNAME=yes
+    volumes:
+      - ${CONF_VOLUME_PGPOOL?ERROR CONF_VOLUME_PGPOOL NOT SET}:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
       interval: 10s
@@ -255,45 +271,14 @@ services:
       - enumverse_postgres_net
       - enumverse_backend_net
 
-  keycloak:
-    image: semicolon/keycloak:26.3.1-0
-    deploy:
-      <<: *deploy-runtime-common
-    ports:
-      - 8280:8443
-      - 8082:8080
-      - 9000:9000
-    environment:
-      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME?ERROR ENV KC_BOOTSTRAP_ADMIN_USERNAME NOT SET}
-      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD?ERROR ENV KC_BOOTSTRAP_ADMIN_PASSWORD NOT SET}
-      # - KC_DB_URL_HOST=${POSTGRES_HOST?ERROR ENV POSTGRES_HOST NOT SET}
-      - KC_DB_URL=jdbc:postgresql://${POSTGRES_HOST?ERROR ENV POSTGRES_HOST NOT SET}:${POSTGRES_PORT?:ERROR ENV POSTGRES_PORT NOT SET}/${KC_DB_NAME?:ERROR ENV KC_DB_NAME NOT SET}
-      - KC_DB_USERNAME=${KC_DB_USERNAME?ERROR ENV KC_DB_USERNAME NOT SET}
-      - KC_DB_PASSWORD=${KC_DB_PASSWORD?ERROR ENV KC_DB_PASSWORD NOT SET}
-    volumes:
-      - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/data/keycloak/kcdata:/opt/keycloak/data
-      - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/util/keycloak/enumverse-realm-export.json:/opt/keycloak/data/import/enumverse-realm.json
-    command: start --import-realm --optimized --http-enabled true --hostname ${KC_HOSTNAME?ERROR ENV KC_HOSTNAME NOT SET} --hostname-backchannel-dynamic true --proxy-headers xforwarded
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health/live"]
-      # interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-    networks:
-      - enumverse_frontend_net
-      - enumverse_backend_net
-    depends_on:
-      - pgpool
-
   # Start zookeeper
-  zookeeper:
+  pulsar-zookeeper:
     <<: *pulsar-common
     deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 1G
+      # resources:
+      #   limits:
+      #     cpus: '0.25'
+      #     memory: 1G
       update_config:
         failure_action: rollback
         order: start-first
@@ -308,9 +293,9 @@ services:
         max_attempts: 5
         window: 60s
     volumes:
-      - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/pulsar/zookeeper:/pulsar/data/zookeeper
+      - ${DATA_VOLUME_PS:?ERROR DATA_VOLUME_PS NOT SET}/zookeeper:/pulsar/data/zookeeper
     environment:
-      - metadataStoreUrl=zk:zookeeper:2181
+      - metadataStoreUrl=zk:pulsar-zookeeper:2181
       - PULSAR_MEM=-Xms256m -Xmx256m -XX:MaxDirectMemorySize=256m
     command:
       - bash
@@ -339,15 +324,15 @@ services:
       - |
         bin/pulsar initialize-cluster-metadata \
         --cluster cluster-a \
-        --zookeeper zookeeper:2181 \
-        --configuration-store zookeeper:2181 \
+        --zookeeper pulsar-zookeeper:2181 \
+        --configuration-store pulsar-zookeeper:2181 \
         --web-service-url http://broker:8080 \
         --broker-service-url pulsar://broker:6650
     depends_on:
-      - zookeeper
+      - pulsar-zookeeper
 
   # Start bookie
-  bookie:
+  pulsar-bookie:
     <<: *pulsar-common
     deploy:
       resources:
@@ -369,22 +354,22 @@ services:
         window: 60s
     environment:
       - clusterName=cluster-a
-      - zkServers=zookeeper:2181
-      - metadataServiceUri=metadata-store:zk:zookeeper:2181
+      - zkServers=pulsar-zookeeper:2181
+      - metadataServiceUri=metadata-store:zk:pulsar-zookeeper:2181
       # otherwise every time we run docker compose uo or down we fail to start due to Cookie
       # See: https://github.com/apache/bookkeeper/blob/405e72acf42bb1104296447ea8840d805094c787/bookkeeper-server/src/main/java/org/apache/bookkeeper/bookie/Cookie.java#L57-68
       - advertisedAddress=bookie
       - BOOKIE_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
     depends_on:
-      - zookeeper
+      - pulsar-zookeeper
       - pulsar-init
     # Map the local directory to the container to avoid bookie startup failure due to insufficient container disks.
     volumes:
-      - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/data/pulsar/bookkeeper:/pulsar/data/bookkeeper
+      - ${DATA_VOLUME_PS?ERROR DATA_VOLUME_PS NOT SET}/bookkeeper:/pulsar/data/bookkeeper
     command: bash -c "bin/apply-config-from-env.py conf/bookkeeper.conf && exec bin/pulsar bookie"
 
   # Start broker
-  broker:
+  pulsar-broker:
     <<: *pulsar-common
     networks: 
       - *pulsar-common-network
@@ -407,10 +392,10 @@ services:
         delay: 10s
         max_attempts: 5
         window: 60s
-    hostname: broker
+    hostname: pulsar-broker
     environment:
-      - metadataStoreUrl=zk:zookeeper:2181
-      - zookeeperServers=zookeeper:2181
+      - metadataStoreUrl=zk:pulsar-zookeeper:2181
+      - zookeeperServers=pulsar-zookeeper:2181
       - clusterName=cluster-a
       - managedLedgerDefaultEnsembleSize=1
       - managedLedgerDefaultWriteQuorum=1
@@ -419,8 +404,8 @@ services:
       - advertisedListeners=external:pulsar://127.0.0.1:6650
       - PULSAR_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
     depends_on:
-      - zookeeper
-      - bookie
+      - pulsar-zookeeper
+      - pulsar-bookie
     ports:
       - "6650:6650"
       - "8080:8080"
