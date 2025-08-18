@@ -12,11 +12,10 @@ x-deploy-cpu-common:
     limits:
       cpus: "0.20"
       memory: 256M
-      # pids: 1
 
 x-runtime-common:
   # deploy: this should be inserted under the deploy section
-  &deploy-runtime-common
+  deploy: &deploy-runtime-common
     update_config:
       failure_action: rollback
       order: start-first
@@ -31,10 +30,14 @@ x-runtime-common:
       max_attempts: 5
       window: 60s
 
+#===============================================================================
+# Postgres common blocks
+#===============================================================================
+
 x-postgres-deploy-cpu:
   # deploy:
   &postgres-deploy-cpu
-    resources:
+    resources: &compute-small
       limits:
         cpus: '0.50'
         memory: 1G
@@ -45,17 +48,46 @@ x-postgres-deploy-cpu:
 x-postgres-common:
   &postgres-common
   image: postgres:17.6-alpine3.22
-  # image: postgres:17.5
-  user: user
-  # restart: unless-stopped
-  # shm_size: 128mb
+  user: postgres
+  deploy: 
+    <<: *deploy-runtime-common
+    resources:
+      <<: *compute-small
   healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER?ERROR ENV POSTGRES_USER NOT SET} --dbname=${POSTGRES_DB:?ERROR ENV POSTGRES_DB NOT SET}"]
+    test: 'pg_isready -U user --dbname=postgres'
     interval: 10s
     timeout: 5s
     retries: 5
-  networks:
-    - enumverse_backend
+  networks: &postgres-networks
+    - enumverse_postgres_net
+
+x-postgres_replica:
+  &postgres_replica
+  <<: *postgres-common
+  ports:
+    - 5432
+  command: |
+    bash -c "
+    if ! [ -f /var/lib/postgresql/data/init.lck ]; then 
+      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=$${REPLICATION_SLOT?[ERROR] ENV VAR REPLICATION SLOT NOT SET} --host=pg-0 --port=5432
+      do
+      echo 'Waiting for primary to connect...'
+      sleep 1s
+      done
+      echo 'Creating lock...'
+      touch /var/lib/postgresql/data/init.lck
+      echo 'Backup done, starting replica...'
+      chmod 0700 /var/lib/postgresql/data
+    fi
+    postgres
+    # - c promote_trigger_file=''
+    "
+  environment: &replica_environments
+    PGUSER: ${PGUSER?[ERROR] PGUSER NOT SET}
+    PGPASSWORD: ${PGPASSWORD?[ERROR] PGPASSWORD NOT SET}
+    REPLICATION_SLOT: replication_slot
+
+
 
 x-api-healthcheck:
   &api-healthcheck
@@ -66,17 +98,26 @@ x-api-healthcheck:
      retries: 5
      start_period: 20s
 
+x-pulsar-networks: &pulsar-common-network
+  enumverse_pulsar_net
+
 x-pulsar-common:
   &pulsar-common
   image: apachepulsar/pulsar:4.0.6
+  networks:
+  - *pulsar-common-network
+
+
 
 
 networks:
-  enumverse_frontend:
+  enumverse_frontend_net:
     external: true
-  enumverse_backend:
+  enumverse_backend_net:
     external: true
-  enumverse_pulsar:
+  enumverse_pulsar_net:
+    external: true
+  enumverse_postgres_net:
     external: true
 
 services:
@@ -105,7 +146,7 @@ services:
         window: 60s
 
     networks:
-      - enumverse_frontend
+      - enumverse_frontend_net
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-app.rule=Host(`enumverse.local`)"
@@ -135,8 +176,8 @@ services:
         max_attempts: 5
         window: 60s
     networks:
-      - enumverse_frontend
-      - enumverse_backend
+      - enumverse_frontend_net
+      - enumverse_backend_net
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-api.entrypoints=websecure"
@@ -144,47 +185,19 @@ services:
       - "traefik.http.routers.web-api.middlewares=my-app-stripprefix"
       - "traefik.http.middlewares.my-app-stripprefix.stripprefix.prefixes=/api"
       - "traefik.http.services.web-api.loadbalancer.server.port=80"
-    # restart: unless-stopped
 
-  postgres_primary:
+  pg-0:
     <<: *postgres-common
-    user: ${UID}:${GID}
-    deploy:
-      resources:
-        limits:
-          cpus: '0.50'
-          memory: 1G
-        reservations:
-          memory: 128M
-      mode: replicated
-      replicas: 1
-      update_config:
-        failure_action: rollback
-        order: start-first
-        delay: 10s
-      rollback_config:
-        parallelism: 1
-        delay: 10s
-        monitor: 10s
-      restart_policy:
-        condition: on-failure
-        delay: 10s
-        max_attempts: 5
-        window: 60s
-      # ports:
-      #   - 5432:5432
+    ports:
+      - 5432
     environment:
-      POSTGRES_USER: ${POSTGRES_USER?ERROR ENV POSTGRES_USER NOT SET}
-      POSTGRES_DB: ${POSTGRES_DB?ERROR ENV POSTGRES_DB NOT SET}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?ERROR ENV POSTGRES_PASSWORD NOT SET}
+      POSTGRES_USER: ${POSTGRES_USER?[ERROR] POSTGRES_USER NOT SET}
+      POSTGRES_DB: ${POSTGRES_DB?[ERROR] POSTGRES_DB NOT SET}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?[ERROR] POSTGRES_PASSWORD NOT SET}
       POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 md5"
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
-      PGUSER: ${PGUSER?ERROR ENV PGUSER NOT SET}
-      PGPASSWORD: "${PGPASSWORD?ERROR ENV PGPASSWORD NOT SET}"
-      KC_DB_NAME: ${KC_DB_NAME?ERROR ENV KC_DB_NAME NOT SET}
-      KC_DB_USERNAME: ${KC_DB_USERNAME?ERROR ENV KC_DB_USERNAME NOT SET}
-      KC_DB_PASSWORD: ${KC_DB_PASSWORD?ERROR ENV KC_DB_PASSWORD NOT SET}
-      TZ: "Africa/Lagos"
+      PGUSER: ${PGUSER?[ERROR] PGUSER NOT SET}
+      PGPASSWORD: ${PGPASSWORD?[ERROR] PGPASSWORD NOT SET}
     command: |
       postgres 
       -c wal_level=replica 
@@ -192,57 +205,55 @@ services:
       -c max_wal_senders=10 
       -c max_replication_slots=10 
       -c hot_standby_feedback=on
+      # -c synchronous_commit='*'
+      # -c synchronous_standby_name='*'
+      # -c wal_log_hint=on
     volumes:
-      - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/util/postgres/primary/00_init_primary.sql:/docker-entrypoint-initdb.d/00_init.sql
-      - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/util/keycloak/init-keycloak-db.sh:/docker-entrypoint-initdb.d/01_init_keycloak_db.sh
-      - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/data/postgres/primary:/var/lib/postgresql/data
+      - ${CONF_VOLUME_PG:?[ERROR] CONF_VOLUME_PG NOT SET!}:/docker-entrypoint-initdb.d
+      - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg-0/pgdata:/var/lib/postgresql/data
 
-  postgres_replica:
-    <<: *postgres-common
-    deploy:
-      resources:
-        limits:
-          cpus: "0.20"
-          memory: 256M
-      mode: replicated
-      replicas: 1
-      update_config:
-        failure_action: rollback
-        order: start-first
-        delay: 10s
-      rollback_config:
-        parallelism: 1
-        delay: 10s
-        monitor: 10s
-      restart_policy:
-        condition: on-failure
-        delay: 10s
-        max_attempts: 5
-        window: 60s
-    # ports:
-    #   - 5433:5432
+  pg-1:
+    <<: *postgres_replica
     environment:
-      PGUSER: ${PGUSER?ERROR ENV PGUSER NOT SET}
-      PGPASSWORD: ${PGPASSWORD?ERROR ENV PGPASSWORD NOT SET}
-      TZ: "Africa/Lagos"
+      <<: *replica_environments
+      REPLICATION_SLOT: ${REPLICATION_SLOT_1?[ERROR] ENV VAR REPLICATION_SLOT_1 NOT SET}
     volumes:
-      - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/data/postgres/replica:/var/lib/postgresql/data
-    command: |
-      bash -c "
-      if [ ! -d '/var/lib/postgresql/data' ]; then 
-        until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=postgres_primary --port=5432
-        do
-        echo 'Waiting for primary to connect...'
-        sleep 1s
-        done
-        echo 'Backup done, starting replica...'
-        chmod 0700 /var/lib/postgresql/data
-      fi
-      postgres
-      "
-    depends_on:
-      - postgres_primary
-        # condition: service_healthy
+      - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg-1/pgdata:/var/lib/postgresql/data
+
+  pg-2:
+    <<: *postgres_replica
+    environment:
+      <<: *replica_environments
+      REPLICATION_SLOT: ${REPLICATION_SLOT_2?[ERROR] ENV VAR REPLICATION_SLOT_2 NOT SET}
+    volumes:
+      - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg-2/pgdata:/var/lib/postgresql/data
+
+  pgpool:
+    image: bitnami/pgpool:4.6.2
+    ports: # Does not need to be exposed to host only apps on the same docker network
+      - 5432
+    environment:
+      - PGPOOL_BACKEND_NODES=0:pg-0:5432:0,1:pg-1:5432:2,2:pg-2:5432:2
+      - PGPOOL_SR_CHECK_USER=${PGUSER?[ERROR] PGUSER NOT SET}
+      - PGPOOL_SR_CHECK_PASSWORD=${PGPASSWORD?[ERROR] PGPASSWORD NOT SET}
+      - PGPOOL_ENABLE_LDAP=no
+      - PGPOOL_POSTGRES_USERNAME=${POSTGRES_USER?[ERROR] POSTGRES_USER NOT SET} 
+      - PGPOOL_POSTGRES_PASSWORD=${POSTGRES_PASSWORD?[ERROR] POSTGRES_PASSWORD NOT SET}
+      - PGPOOL_ADMIN_USERNAME=${PGPOOL_ADMIN_USERNAME?[ERROR] PGPOOL_ADMIN_USERNAME NOT SET}
+      - PGPOOL_ADMIN_PASSWORD=${PGPOOL_ADMIN_PASSWORD?[ERROR] PGPOOL_ADMIN_PASSWORD NOT SET}
+      - PGPOOL_ENABLE_LOAD_BALANCING=yes
+      # These features below are for debugging and should only be enable in non production
+      # - PGPOOL_ENABLE_LOG_CONNECTIONS=yes
+      # - PGPOOL_ENABLE_LOG_PER_NODE_STATEMENT=yes
+      # - PGPOOL_ENABLE_LOG_HOSTNAME=yes
+    healthcheck:
+      test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - enumverse_postgres_net
+      - enumverse_backend_net
 
   keycloak:
     image: semicolon/keycloak:26.3.1-0
@@ -270,11 +281,10 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - enumverse_frontend
-      - enumverse_backend
+      - enumverse_frontend_net
+      - enumverse_backend_net
     depends_on:
-      - "postgres_primary"
-        # condition: service_healthy
+      - pgpool
 
   # Start zookeeper
   zookeeper:
@@ -297,10 +307,6 @@ services:
         delay: 10s
         max_attempts: 5
         window: 60s
-
-
-    networks:
-      - enumverse_pulsar
     volumes:
       - ${DATA_VOLUME?ERROR ENV DATA_VOLUME NOT SET}/pulsar/zookeeper:/pulsar/data/zookeeper
     environment:
@@ -327,8 +333,6 @@ services:
         limits:
           cpus: '0.25'
           memory: 3G
-    networks:
-      - enumverse_pulsar
     command:
       - bash
       - -c 
@@ -341,7 +345,6 @@ services:
         --broker-service-url pulsar://broker:6650
     depends_on:
       - zookeeper
-       
 
   # Start bookie
   bookie:
@@ -364,9 +367,6 @@ services:
         delay: 10s
         max_attempts: 5
         window: 60s
-
-    networks:
-      - enumverse_pulsar
     environment:
       - clusterName=cluster-a
       - zkServers=zookeeper:2181
@@ -386,6 +386,9 @@ services:
   # Start broker
   broker:
     <<: *pulsar-common
+    networks: 
+      - *pulsar-common-network
+      - enumverse_backend_net
     deploy:
       resources:
         limits:
@@ -404,10 +407,7 @@ services:
         delay: 10s
         max_attempts: 5
         window: 60s
-
     hostname: broker
-    networks:
-      - enumverse_pulsar
     environment:
       - metadataStoreUrl=zk:zookeeper:2181
       - zookeeperServers=zookeeper:2181

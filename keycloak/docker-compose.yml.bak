@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:17.5
+    container_name: keycloak_db
+    hostname: kcdb
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?ERROR ENV POSTGRES_PASSWORD NOT SET}
+      - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
+      - KC_DB_NAME=${KC_DB_NAME:?ERROR ENV KC_DB_NAME NOT SET}
+      - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
+      - TZ=Africa/Lagos
+    volumes:
+      - ./data/pgdata:/var/lib/postgresql/data
+      - ./init-keycloak-db.sh:/docker-entrypoint-initdb.d/01_init_keycloak_db.sh
+    networks:
+      - app_backend
+    healthcheck:
+      test: 'pg_isready -U postgres --dbname=postgres'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    #image: quay.io/keycloak/keycloak:26.0.0
+    image: semicolon/keycloak:26.3.1-0
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    # container_name: keycloak_app
+    # restart: unless-stopped
+    ports:
+      - 8280:8443
+      - 8082:8080
+      - 9000:9000
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:?ERROR ENV KC_BOOTSTRAP_ADMIN_USERNAME NOT SET}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:?ERROR ENV KC_BOOTSTRAP_ADMIN_PASSWORD NOT SET}
+      - KC_DB_URL_HOST=${KC_DB_HOST:?ERROR ENV KC_DB_HOST NOT SET}
+      - KC_DB_URL=jdbc:postgresql://${KC_DB_HOST}:${KC_DB_PORT}/${KC_DB_NAME}
+      - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
+      - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
+    # volumes:
+    #   - ${KC_DATA_VOLUME:?ERROR ENV KC_DATA_VOLUME NOT SET}/kcdata:/opt/keycloak/data
+    #   - ${KC_DATA_VOLUME:?ERROR ENV KC_DATA_VOLUME NOT SET}/enumverse-realm-export.json:/opt/keycloak/data/import/enumverse-realm.json
+    command: start --import-realm --optimized --http-enabled true --hostname http://localhost:8082 --hostname-backchannel-dynamic true --proxy-headers xforwarded
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health/live"]
+      # interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - app_frontend
+      - app_backend
+    depends_on:
+      - db
+        
+
+volumes:
+  data:
+  db:
+
+networks:
+  app_backend:
+    # external: true
+  app_frontend:
+    # external: true
