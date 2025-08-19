@@ -32,13 +32,13 @@ services:
       - "--metrics.prometheus=true"
       - "--api.insecure=true"
       - "--api.dashboard=true"
-      # - "--log.filePath=/data/traefik.log"
+      - "--log.filePath=/data/traefik.log"
       - "--accesslog.filePath=/data/access.log"
 
       # Common Properties
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      # - "--providers.docker.network=frontend"
+      # - "--providers.docker.network=enumverse_frontend_net"
       # Docker socket
       - "--providers.docker.endpoint=unix:///var/run/docker.sock"
 
@@ -50,7 +50,7 @@ services:
       - "--providers.swarm.exposedbydefault=false"
 
       # Default network for swarm to connect to services
-      - "--providers.swarm.network=enumverse_frontend_net"
+      # - "--providers.swarm.network=enumverse_frontend_net"
       
       # Dynamic configuation file provider 
       - "--providers.file.directory=/etc/traefik"

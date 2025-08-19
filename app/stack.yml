@@ -140,7 +140,7 @@ services:
           cpus: "0.20"
           memory: 256M
       mode: replicated
-      replicas: 2
+      replicas: 1
       update_config:
         failure_action: rollback
         order: start-first
@@ -154,13 +154,15 @@ services:
         delay: 10s
         max_attempts: 5
         window: 60s
-
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.webapp.rule=Host(`www.enumverse.dev`)"
+        - "traefik.http.routers.webapp.entrypoints=websecure"
+        - "traefik.http.routers.webapp.tls=true"
+        - "traefik.http.services.webapp.loadbalancer.server.port=80"
+        # - "traefik.docker.network=enumverse_frontend_net"
     networks:
       - enumverse_frontend_net
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.web-app.rule=Host(`enumverse.local`)"
-      - "traefik.http.routers.web-app.entrypoints=websecure"
 
   api:
     # container_name: api
@@ -172,7 +174,7 @@ services:
           cpus: "0.20"
           memory: 256M
       mode: replicated
-      replicas: 2
+      replicas: 1
       update_config:
         failure_action: rollback
         order: start-first
@@ -186,17 +188,19 @@ services:
         delay: 10s
         max_attempts: 5
         window: 60s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.web-api.entrypoints=websecure"
+        - "traefik.http.routers.web-api.rule=Host(`api.enumverse.dev`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.web-api.middlewares=my-app-stripprefix"
+        - "traefik.http.middlewares.my-app-stripprefix.stripprefix.prefixes=/api"
+        # - "traefik.http.services.web-api.loadbalancer.server.port=8080"
+        - "traefik.http.routers.web-app.tls=true"
+        - "traefik.http.services.web-app.loadbalancer.server.port=80"
     networks:
       - enumverse_frontend_net
       - enumverse_backend_net
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.web-api.entrypoints=websecure"
-      - "traefik.http.routers.web-api.rule=Host(`enumverse.local`) && PathPrefix(`/api`)"
-      - "traefik.http.routers.web-api.middlewares=my-app-stripprefix"
-      - "traefik.http.middlewares.my-app-stripprefix.stripprefix.prefixes=/api"
-      - "traefik.http.services.web-api.loadbalancer.server.port=80"
-
+      
   pg-0:
     <<: *postgres-common
     ports:
@@ -407,7 +411,7 @@ services:
       - pulsar-zookeeper
       - pulsar-bookie
     ports:
-      - "6650:6650"
-      - "8080:8080"
+      - ":6650"
+      - ":8080"
     command: bash -c "bin/apply-config-from-env.py conf/broker.conf && exec bin/pulsar broker"
 

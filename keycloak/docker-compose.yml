@@ -14,7 +14,7 @@ services:
       - ${DATA_VOLUME_PG:?ERROR DATA_VOLUME_PG NOT SET}/pg-0/data:/var/lib/postgresql/data
       - ${CONF_VOLUME:?ERROR CONF_VOLUME NOT SET}/init-keycloak-db.sh:/docker-entrypoint-initdb.d/01_init_keycloak_db.sh
     networks:
-      - keycloak_backend_net
+      - enumverse_keycloak_net
     healthcheck:
       test: 'pg_isready -U postgres --dbname=postgres'
       interval: 10s
@@ -25,47 +25,111 @@ services:
     # image: quay.io/keycloak/keycloak:26.0.0
     # image: quay.io/keycloak/keycloak:26.3.2
     image: semicolon/keycloak:26.3.1-0
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
-    # container_name: keycloak_app
-    # restart: unless-stopped
     ports:
-      - 8280:8443
+      - 9000:8443
       - 8082:8080
-      - 9000:9000
+      - 9001:9000
     environment:
       - TZ=Africa/Lagos
       - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:?ERROR ENV KC_BOOTSTRAP_ADMIN_USERNAME NOT SET}
       - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:?ERROR ENV KC_BOOTSTRAP_ADMIN_PASSWORD NOT SET}
       - KC_DB_URL_HOST=${KC_DB_HOST:?ERROR ENV KC_DB_HOST NOT SET}
-      # - KC_DB_URL=jdbc:postgresql://${KC_DB_HOST}:${KC_DB_PORT}/${KC_DB_NAME}
       - KC_DB=${KC_DB:?ERROR ENV KC_DB NOT SET}
       - KC_DB_HOST=${KC_DB_HOST:?ERROR ENV KC_DB_HOST NOT SET}
       - KC_DB_NAME=${KC_DB_NAME:?ERROR ENV KC_DB_NAME NOT SET}
       - KC_DB_PORT=${KC_DB_PORT:?ERROR ENV KC_DB_PORT NOT SET}
       - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
       - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
+      - KC_PROXY_ADDRESS_FORWARDING=true
+      - KC_PROXY_HEADERS=xforwarded
+      # - KC_HOSTNAME_STRICT=false
+      # - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_HOSTNAME=${KC_HOSTNAME:?ERROR KC_HOSTNAME NOT SET}
+      - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=false
+      - KC_PROXY=edge
+      - KC_HTTP_ENABLED=true
     volumes:
       - ${DATA_VOLUME_KC:?ERROR DATA_VOLUME_KC NOT SET}/data:/opt/keycloak/data
       - ${CONF_VOLUME:?ERROR CONF_VOLUME NOT SET}/enumverse-realm-export.json:/opt/keycloak/data/import/enumverse-realm-export.json
-    command: start --optimized --verbose --http-enabled true --hostname http://localhost:8082  --hostname-backchannel-dynamic true --proxy-headers xforwarded --import-realm 
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health/live"]
-      # interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
+    command: start --optimized --verbose --import-realm  # --hostname https://idm.enumverse.dev --http-enabled true  --hostname-backchannel-dynamic true --proxy-headers xforwarded 
+    # healthcheck:
+    #   test: ["CMD", "curl", "-fsS", "http://localhost:9000/health/live"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 5
+    #   start_period: 20s
     networks:
-      - keycloak_backend_net
-      - keycloak_frontend_net
-    depends_on:
-      - db
+      - enumverse_keycloak_net
+      - enumverse_frontend_net
+    deploy:
+      # resources:
+      #   limits:
+      #     cpus: "0.20"
+      #     memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+    labels:
+      # - "traefik.enable=true"
+      # - "traefik.http.routers.keycloak.rule=Host(`idm.enumverse.dev`)"
+      # - "traefik.http.routers.keycloak.entrypoints=websecure"
+      # - "traefik.http.routers.keycloak.tls=true"
+      # - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+      - "traefik.docker.network=enumverse_frontend_net"
+      - "traefik.enable=true"
+      - "traefik.http.routers.kc.rule=Host(`${KC_HOSTNAME:?ERROR KC_HOSTNAME NOT SET}`)"
+      - "traefik.http.routers.kc.entrypoints=websecure"
+      - "traefik.http.routers.kc.tls=true"
+      - "traefik.http.services.kc.loadbalancer.server.port=8080"
         
-
+  web:
+    # container_name: web
+    image: nginx:latest
+    deploy:
+      resources:
+        limits:
+          cpus: "0.20"
+          memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webapp2.rule=Host(`test.enumverse.dev`)"
+      - "traefik.http.routers.webapp2.entrypoints=websecure"
+      - "traefik.http.routers.webapp2.tls=true"
+      - "traefik.http.services.webapp2.loadbalancer.server.port=80"
+      - "traefik.docker.network=enumverse_frontend_net"
+    networks:
+      - enumverse_frontend_net
 
 networks:
-  keycloak_backend_net:
-    # external: true
-  keycloak_frontend_net:
-    # external: true
+  enumverse_frontend_net:
+    external: true
+    attachable: true
+  enumverse_keycloak_net:
+    external: true
