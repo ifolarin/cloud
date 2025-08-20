@@ -156,14 +156,14 @@ services:
         window: 60s
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.webapp.rule=Host(`www.enumverse.dev`)" # || Host(`enumverse.dev`)"
+        - "traefik.http.routers.webapp.rule=Host(`enumverse.dev`) ||  Host(`www.enumverse.dev`)"
         - "traefik.http.routers.webapp.entrypoints=websecure"
         - "traefik.http.routers.webapp.tls=true"
         - "traefik.http.services.webapp.loadbalancer.server.port=80"
 
-        # - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^https://www\\.(.*)"
-        # - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=^https://$${1}"
-        # - "traefik.http.routers.webapp.middlewares.mywwwredirect"
+        - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^https://www\\.(.*)"
+        - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=https://$${1}"
+        - "traefik.http.routers.webapp.middlewares=mywwwredirect"
         - "traefik.docker.network=enumverse_frontend_net"
     networks:
       - enumverse_frontend_net
@@ -250,27 +250,11 @@ services:
       - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg-2/pgdata:/var/lib/postgresql/data
 
   pgpool:
-    # image: bitnami/pgpool:4.6.2
     image: pgpool/pgpool:4.0.23
     ports: # Does not need to be exposed to host only apps on the same docker network
       - 9999
     environment:
       - TZ=Africa/Lagos
-      # bitnami/pgpool environment vars
-      # - PGPOOL_BACKEND_NODES=0:pg-0:5432:0,1:pg-1:5432:2,2:pg-2:5432:2
-      # - PGPOOL_SR_CHECK_USER=${PGUSER?[ERROR] PGUSER NOT SET}
-      # - PGPOOL_SR_CHECK_PASSWORD=${PGPASSWORD?[ERROR] PGPASSWORD NOT SET}
-      # - PGPOOL_ENABLE_LDAP=no
-      # - PGPOOL_POSTGRES_USERNAME=${POSTGRES_USER?[ERROR] POSTGRES_USER NOT SET} 
-      # - PGPOOL_POSTGRES_PASSWORD=${POSTGRES_PASSWORD?[ERROR] POSTGRES_PASSWORD NOT SET}
-      # - PGPOOL_ADMIN_USERNAME=${PGPOOL_ADMIN_USERNAME?[ERROR] PGPOOL_ADMIN_USERNAME NOT SET}
-      # - PGPOOL_ADMIN_PASSWORD=${PGPOOL_ADMIN_PASSWORD?[ERROR] PGPOOL_ADMIN_PASSWORD NOT SET}
-      # - PGPOOL_ENABLE_LOAD_BALANCING=yes
-      # These features below are for debugging and should only be enable in non production
-      # - PGPOOL_ENABLE_LOG_CONNECTIONS=yes
-      # - PGPOOL_ENABLE_LOG_PER_NODE_STATEMENT=yes
-      # - PGPOOL_ENABLE_LOG_HOSTNAME=yes
-      # pgpool/pgpool environment vars
       - PGPOOL_PARAMS_BACKEND_HOSTNAME0=pg0
       - PGPOOL_PARAMS_BACKEND_HOSTNAME1=pg1
       - PGPOOL_PARAMS_BACKEND_HOSTNAME2=pg2

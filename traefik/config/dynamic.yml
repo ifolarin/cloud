@@ -1,7 +1,8 @@
 tls:
-  # certificates:
-  #   - certFile: "/etc/certs/enumverse.dev.pem"
-  #     keyFile: "/etc/certs/enumverse.dev-key.pem"
   certificates:
     - certFile: "/etc/certs/_wildcard.enumverse.dev.pem"
       keyFile: "/etc/certs/_wildcard.enumverse.dev-key.pem"
+      stores:
+        - default:
+    - certFile: "/etc/certs/enumverse.dev.pem"
+      keyFile: "/etc/certs/enumverse.dev-key.pem"
