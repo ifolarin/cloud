@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -e
-
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-        CREATE USER ${KC_DB_USERNAME}  WITH ENCRYPTED PASSWORD '$KC_DB_PASSWORD';
-        CREATE DATABASE ${KC_DB_NAME};
-        ALTER DATABASE ${KC_DB_NAME}  OWNER TO ${KC_DB_USERNAME};
-EOSQL

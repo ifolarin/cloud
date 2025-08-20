@@ -1,25 +1,25 @@
 services:
-  db:
-    image: postgres:17.6-alpine3.22
-    # container_name: keycloak_db
-    # hostname: kcdb
-    # restart: unless-stopped
-    environment:
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?ERROR ENV POSTGRES_PASSWORD NOT SET}
-      - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
-      - KC_DB_NAME=${KC_DB_NAME:?ERROR ENV KC_DB_NAME NOT SET}
-      - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
-      - TZ=Africa/Lagos
-    volumes:
-      - ${DATA_VOLUME_PG:?ERROR DATA_VOLUME_PG NOT SET}/pg-0/data:/var/lib/postgresql/data
-      - ${CONF_VOLUME:?ERROR CONF_VOLUME NOT SET}/init-keycloak-db.sh:/docker-entrypoint-initdb.d/01_init_keycloak_db.sh
-    networks:
-      - enumverse_keycloak_net
-    healthcheck:
-      test: 'pg_isready -U postgres --dbname=postgres'
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # db:
+  #   image: postgres:17.6-alpine3.22
+  #   # container_name: keycloak_db
+  #   # hostname: kcdb
+  #   # restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?ERROR ENV POSTGRES_PASSWORD NOT SET}
+  #     - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
+  #     - KC_DB_NAME=${KC_DB_NAME:?ERROR ENV KC_DB_NAME NOT SET}
+  #     - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
+  #     - TZ=Africa/Lagos
+  #   volumes:
+  #     - ${DATA_VOLUME_PG:?ERROR DATA_VOLUME_PG NOT SET}/pg-0/data:/var/lib/postgresql/data
+  #     - ${CONF_VOLUME:?ERROR CONF_VOLUME NOT SET}/init-keycloak-db.sh:/docker-entrypoint-initdb.d/01_init_keycloak_db.sh
+  #   networks:
+  #     - enumverse_keycloak_net
+  #   healthcheck:
+  #     test: 'pg_isready -U postgres --dbname=postgres'
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
   keycloak:
     # image: quay.io/keycloak/keycloak:26.0.0
@@ -34,10 +34,8 @@ services:
       - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:?ERROR ENV KC_BOOTSTRAP_ADMIN_USERNAME NOT SET}
       - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:?ERROR ENV KC_BOOTSTRAP_ADMIN_PASSWORD NOT SET}
       - KC_DB_URL_HOST=${KC_DB_HOST:?ERROR ENV KC_DB_HOST NOT SET}
-      - KC_DB=${KC_DB:?ERROR ENV KC_DB NOT SET}
-      - KC_DB_HOST=${KC_DB_HOST:?ERROR ENV KC_DB_HOST NOT SET}
-      - KC_DB_NAME=${KC_DB_NAME:?ERROR ENV KC_DB_NAME NOT SET}
-      - KC_DB_PORT=${KC_DB_PORT:?ERROR ENV KC_DB_PORT NOT SET}
+      - KC_DB_URL_PORT=${KC_DB_PORT:?ERROR ENV KC_DB_PORT NOT SET}
+      - KC_DB_URL_DATABASE=${KC_DB_NAME:?ERROR ENV KC_DB_NAME NOT SET}
       - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR ENV KC_DB_USERNAME NOT SET}
       - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR ENV KC_DB_PASSWORD NOT SET}
       - KC_PROXY_ADDRESS_FORWARDING=true
@@ -53,13 +51,13 @@ services:
       - ${CONF_VOLUME:?ERROR CONF_VOLUME NOT SET}/enumverse-realm-export.json:/opt/keycloak/data/import/enumverse-realm-export.json
     command: start --optimized --verbose --import-realm  # --hostname https://idm.enumverse.dev --http-enabled true  --hostname-backchannel-dynamic true --proxy-headers xforwarded 
     # healthcheck:
-    #   test: ["CMD", "curl", "-fsS", "http://localhost:9000/health/live"]
+    #   test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000;echo -e \"GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3"]
     #   interval: 30s
     #   timeout: 10s
     #   retries: 5
-    #   start_period: 20s
+    #   start_period: 30s
     networks:
-      - enumverse_keycloak_net
+      - enumverse_postgres_net
       - enumverse_frontend_net
     deploy:
       # resources:
@@ -82,17 +80,12 @@ services:
         max_attempts: 5
         window: 60s
     labels:
-      # - "traefik.enable=true"
-      # - "traefik.http.routers.keycloak.rule=Host(`idm.enumverse.dev`)"
-      # - "traefik.http.routers.keycloak.entrypoints=websecure"
-      # - "traefik.http.routers.keycloak.tls=true"
-      # - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
-      - "traefik.docker.network=enumverse_frontend_net"
       - "traefik.enable=true"
-      - "traefik.http.routers.kc.rule=Host(`${KC_HOSTNAME:?ERROR KC_HOSTNAME NOT SET}`)"
-      - "traefik.http.routers.kc.entrypoints=websecure"
-      - "traefik.http.routers.kc.tls=true"
-      - "traefik.http.services.kc.loadbalancer.server.port=8080"
+      - "traefik.http.routers.keycloak.rule=Host(`${KC_DOMAIN:?ERROR KC_DOMAIN NOT SET}`)"
+      - "traefik.http.routers.keycloak.entrypoints=websecure"
+      - "traefik.http.routers.keycloak.tls=true"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=${KC_HTTP_PORT:?ERROR KC_HTTP_PORT NOT SET}"
+      - "traefik.docker.network=enumverse_frontend_net"
         
   web:
     # container_name: web
@@ -109,7 +102,7 @@ services:
         order: start-first
         delay: 10s
       rollback_config:
-        parallelism: 1
+        parallelism: 2
         delay: 10s
         monitor: 10s
       restart_policy:
@@ -126,10 +119,11 @@ services:
       - "traefik.docker.network=enumverse_frontend_net"
     networks:
       - enumverse_frontend_net
+      - enumverse_postgres_net
 
 networks:
   enumverse_frontend_net:
     external: true
     attachable: true
-  enumverse_keycloak_net:
+  enumverse_postgres_net:
     external: true
