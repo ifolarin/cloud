@@ -15,7 +15,7 @@ services:
       - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/data:/data
     environment:
       - TZ=Africa/Lagos
-      - DOMAIN=enumverse.dev
+      - DOMAIN=${DOMAIN:-enumverse.dev}
       - CF_DNS_API_TOKEN=your-cloudflare-api-token  # <-- Change this to your Cloudflare API Token
     networks:
       - edge
@@ -32,8 +32,8 @@ services:
       - "--metrics.prometheus=true"
       - "--api.insecure=true"
       - "--api.dashboard=true"
-      - "--log.filePath=/data/traefik.log"
-      - "--accesslog.filePath=/data/access.log"
+      # - "--log.filePath=/data/traefik.log"
+      # - "--accesslog.filePath=/data/access.log"
 
       # Common Properties
       - "--providers.docker=true"
@@ -82,8 +82,8 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.backend=dashboard"
-        # - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
-        - "traefik.http.routers.traefik.rule=Host(`traefik.enumverse.dev`)"
+        - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+        # - "traefik.http.routers.traefik.rule=Host(`traefik.enumverse.dev`)"
         - "traefik.http.routers.traefik.entrypoints=websecure"
         - "traefik.http.routers.traefik.service=api@internal"
         - "traefik.http.routers.traefik.tls=true"
@@ -94,14 +94,14 @@ services:
     image: vishnunair/docker-mkcert:latest
     environment:
       - TZ=Africa/Lagos
-      - domain=*.enumverse.dev
+      - domain=*.enumverse.dev,enumverse.dev
     volumes:
       - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/certs:/root/.local/share/mkcert
     labels:
       - "traefik.enable=false"
     networks:
       - edge
-      - enumverse_frontend_net
+      # - enumverse_frontend_net
 
 networks:
   enumverse_frontend_net:

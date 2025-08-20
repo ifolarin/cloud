@@ -140,7 +140,7 @@ services:
           cpus: "0.20"
           memory: 256M
       mode: replicated
-      replicas: 1
+      replicas: 2
       update_config:
         failure_action: rollback
         order: start-first
@@ -156,11 +156,15 @@ services:
         window: 60s
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.webapp.rule=Host(`www.enumverse.dev`)"
+        - "traefik.http.routers.webapp.rule=Host(`www.enumverse.dev`)" # || Host(`enumverse.dev`)"
         - "traefik.http.routers.webapp.entrypoints=websecure"
         - "traefik.http.routers.webapp.tls=true"
         - "traefik.http.services.webapp.loadbalancer.server.port=80"
-        # - "traefik.docker.network=enumverse_frontend_net"
+
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^https://www\\.(.*)"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=^https://$${1}"
+        # - "traefik.http.routers.webapp.middlewares.mywwwredirect"
+        - "traefik.docker.network=enumverse_frontend_net"
     networks:
       - enumverse_frontend_net
 
@@ -174,7 +178,7 @@ services:
           cpus: "0.20"
           memory: 256M
       mode: replicated
-      replicas: 1
+      replicas: 2
       update_config:
         failure_action: rollback
         order: start-first
@@ -190,18 +194,17 @@ services:
         window: 60s
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.web-api.entrypoints=websecure"
-        - "traefik.http.routers.web-api.rule=Host(`api.enumverse.dev`) && PathPrefix(`/api`)"
-        - "traefik.http.routers.web-api.middlewares=my-app-stripprefix"
-        - "traefik.http.middlewares.my-app-stripprefix.stripprefix.prefixes=/api"
-        # - "traefik.http.services.web-api.loadbalancer.server.port=8080"
-        - "traefik.http.routers.web-app.tls=true"
-        - "traefik.http.services.web-app.loadbalancer.server.port=80"
+        - "traefik.http.routers.webapi.entrypoints=websecure"
+        - "traefik.http.routers.webapi.rule=Host(`web.enumverse.dev`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.webapi.middlewares=myappstripprefix"
+        - "traefik.http.middlewares.myappstripprefix.stripprefix.prefixes=/api"
+        - "traefik.http.routers.webapi.tls=true"
+        - "traefik.http.services.webapi.loadbalancer.server.port=80"
     networks:
       - enumverse_frontend_net
       - enumverse_backend_net
       
-  pg-0:
+  pg0:
     <<: *postgres-common
     ports:
       - 5432
@@ -230,7 +233,7 @@ services:
       - ${CONF_VOLUME_PG:?[ERROR] CONF_VOLUME_PG NOT SET!}:/docker-entrypoint-initdb.d
       - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg-0/pgdata:/var/lib/postgresql/data
 
-  pg-1:
+  pg1:
     <<: *postgres_replica
     environment:
       <<: *replica_environments
@@ -238,7 +241,7 @@ services:
     volumes:
       - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg-1/pgdata:/var/lib/postgresql/data
 
-  pg-2:
+  pg2:
     <<: *postgres_replica
     environment:
       <<: *replica_environments
@@ -246,31 +249,65 @@ services:
     volumes:
       - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg-2/pgdata:/var/lib/postgresql/data
 
-  pg-pool:
-    image: bitnami/pgpool:4.6.2
+  pgpool:
+    # image: bitnami/pgpool:4.6.2
+    image: pgpool/pgpool:4.0.23
     ports: # Does not need to be exposed to host only apps on the same docker network
-      - 5432
+      - 9999
     environment:
-      - PGPOOL_BACKEND_NODES=0:pg-0:5432:0,1:pg-1:5432:2,2:pg-2:5432:2
-      - PGPOOL_SR_CHECK_USER=${PGUSER?[ERROR] PGUSER NOT SET}
-      - PGPOOL_SR_CHECK_PASSWORD=${PGPASSWORD?[ERROR] PGPASSWORD NOT SET}
-      - PGPOOL_ENABLE_LDAP=no
-      - PGPOOL_POSTGRES_USERNAME=${POSTGRES_USER?[ERROR] POSTGRES_USER NOT SET} 
-      - PGPOOL_POSTGRES_PASSWORD=${POSTGRES_PASSWORD?[ERROR] POSTGRES_PASSWORD NOT SET}
-      - PGPOOL_ADMIN_USERNAME=${PGPOOL_ADMIN_USERNAME?[ERROR] PGPOOL_ADMIN_USERNAME NOT SET}
-      - PGPOOL_ADMIN_PASSWORD=${PGPOOL_ADMIN_PASSWORD?[ERROR] PGPOOL_ADMIN_PASSWORD NOT SET}
-      - PGPOOL_ENABLE_LOAD_BALANCING=yes
+      - TZ=Africa/Lagos
+      # bitnami/pgpool environment vars
+      # - PGPOOL_BACKEND_NODES=0:pg-0:5432:0,1:pg-1:5432:2,2:pg-2:5432:2
+      # - PGPOOL_SR_CHECK_USER=${PGUSER?[ERROR] PGUSER NOT SET}
+      # - PGPOOL_SR_CHECK_PASSWORD=${PGPASSWORD?[ERROR] PGPASSWORD NOT SET}
+      # - PGPOOL_ENABLE_LDAP=no
+      # - PGPOOL_POSTGRES_USERNAME=${POSTGRES_USER?[ERROR] POSTGRES_USER NOT SET} 
+      # - PGPOOL_POSTGRES_PASSWORD=${POSTGRES_PASSWORD?[ERROR] POSTGRES_PASSWORD NOT SET}
+      # - PGPOOL_ADMIN_USERNAME=${PGPOOL_ADMIN_USERNAME?[ERROR] PGPOOL_ADMIN_USERNAME NOT SET}
+      # - PGPOOL_ADMIN_PASSWORD=${PGPOOL_ADMIN_PASSWORD?[ERROR] PGPOOL_ADMIN_PASSWORD NOT SET}
+      # - PGPOOL_ENABLE_LOAD_BALANCING=yes
       # These features below are for debugging and should only be enable in non production
       # - PGPOOL_ENABLE_LOG_CONNECTIONS=yes
       # - PGPOOL_ENABLE_LOG_PER_NODE_STATEMENT=yes
       # - PGPOOL_ENABLE_LOG_HOSTNAME=yes
-    volumes:
+      # pgpool/pgpool environment vars
+      - PGPOOL_PARAMS_BACKEND_HOSTNAME0=pg0
+      - PGPOOL_PARAMS_BACKEND_HOSTNAME1=pg1
+      - PGPOOL_PARAMS_BACKEND_HOSTNAME2=pg2
+      - PGPOOL_PARAMS_BACKEND_PORT0=5432
+      - PGPOOL_PARAMS_BACKEND_PORT1=5432
+      - PGPOOL_PARAMS_BACKEND_PORT2=5432
+      - PGPOOL_PARAMS_BACKEND_WEIGHT0=1
+      - PGPOOL_PARAMS_BACKEND_WEIGHT1=1
+      - PGPOOL_PARAMS_BACKEND_WEIGHT2=1
+      # - PGPOOL_PARAMS_BACKEND_FLAG0=ALLOW_TO_FAILOVER
+      # - PGPOOL_PARAMS_BACKEND_FLAG1=ALLOW_TO_FAILOVER
+      # - PGPOOL_PARAMS_BACKEND_FLAG2=ALLOW_TO_FAILOVER
+      - PGPOOL_PARAMS_SR_CHECK_PERIOD=10
+      - PGPOOL_PARAMS_SR_CHECK_USER=${PGUSER?[ERROR] PGUSER NOT SET} 
+      - PGPOOL_PARAMS_SR_CHECK_PASSWORD=${PGPASSWORD?[ERROR] PGPASSWORD NOT SET} 
+      - PGPOOL_PARAMS_HEALTH_CHECK_PERIOD=10
+      - PGPOOL_PARAMS_HEALTH_CHECK_USER=${POSTGRES_USER?[ERROR] POSTGRES_USER NOT SET} 
+      - PGPOOL_ENABLE_POOL_PASSWD=true
+      - PGPOOL_PASSWORD_ENCRYPTION_METHOD=scram-sha-256
+      - PGPOOL_SKIP_PASSWORD_ENCRYPTION=false
+      - PGPOOL_PCP_USER="${PGUSER:?ERROR PGUSER NOT SET}"
+      - PGPOOL_PCP_PASSWORD="${PGPASSWORD:?ERROR PGPASSWORD NOT SET}"
+      
+      # Postgres 
+      - POSTGRES_USERNAME=${POSTGRES_USER?[ERROR] POSTGRES_USER NOT SET} 
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?[ERROR] POSTGRES_PASSWORD NOT SET}
+      # Keycloak Connection Details
+      - KEYCLOAK_USERNAME=${KC_DB_USERNAME:?ERROR KC_DB_USERNAME NOT SET}
+      - KEYCLOAK_PASSWORD=${KC_DB_PASSWORD:?ERROR KC_DB_PASSWORD NOT SET}
+
+      
       - ${CONF_VOLUME_PGPOOL?ERROR CONF_VOLUME_PGPOOL NOT SET}:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # healthcheck:
+    #   test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
     networks:
       - enumverse_postgres_net
       - enumverse_backend_net
