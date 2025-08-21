@@ -1,6 +1,6 @@
 #!/bin/bash
 set -a
-source ./.env
+source .env
 set +a
 PGUID=70
 PGGID=70
@@ -24,5 +24,3 @@ chmod -R 0775 ${CONF_VOLUME_KC}
 mkdir -p ${DATA_VOLUME_PS:?[ERROR] DATA_VOLUME_PS NOT SET}/zookeeper
 mkdir -p ${DATA_VOLUME_PS:?[ERROR] DATA_VOLUME_PS NOT SET}/bookkeeper
 chmod -R 0775 ${DATA_VOLUME_PS}
-
-mkdir -p ${CONF_VOLUME_PGPOOL:?ERROR CONF_VOLUME_PGPOOL NOT SET}

@@ -66,10 +66,12 @@ x-postgres_replica:
   <<: *postgres-common
   ports:
     - 5432
+  depends_on:
+    - pg0
   command: |
     bash -c "
     if ! [ -f /var/lib/postgresql/data/init.lck ]; then 
-      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=$${REPLICATION_SLOT?[ERROR] ENV VAR REPLICATION SLOT NOT SET} --host=pg-0 --port=5432
+      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=$${REPLICATION_SLOT?[ERROR] ENV VAR REPLICATION SLOT NOT SET} --host=pg0 --port=5432
       do
       echo 'Waiting for primary to connect...'
       sleep 1s
@@ -131,7 +133,6 @@ networks:
 
 services:
   web:
-    # container_name: web
     image: nginx:latest
     <<: *web-healthcheck
     deploy:
@@ -160,13 +161,64 @@ services:
         - "traefik.http.routers.webapp.entrypoints=websecure"
         - "traefik.http.routers.webapp.tls=true"
         - "traefik.http.services.webapp.loadbalancer.server.port=80"
-
         - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^https://www\\.(.*)"
         - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=https://$${1}"
         - "traefik.http.routers.webapp.middlewares=mywwwredirect"
         - "traefik.docker.network=enumverse_frontend_net"
     networks:
       - enumverse_frontend_net
+
+
+  # idm_api:
+  #   image: nginx:latest
+  #   <<: *web-healthcheck
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "0.20"
+  #         memory: 256M
+  #     mode: replicated
+  #     replicas: 2
+  #     update_config:
+  #       failure_action: rollback
+  #       order: start-first
+  #       delay: 10s
+  #     rollback_config:
+  #       parallelism: 1
+  #       delay: 10s
+  #       monitor: 10s
+  #     restart_policy:
+  #       condition: on-failure
+  #       delay: 10s
+  #       max_attempts: 5
+  #       window: 60s
+  #     labels:
+  #       - "traefik.enable=true"
+  #       - "traefik.http.routers.webapp.rule=Host(`enumverse.dev/identity`)"
+  #       - "traefik.http.routers.webapp.entrypoints=websecure"
+  #       - "traefik.http.routers.webapp.tls=true"
+  #       - "traefik.http.services.webapp.loadbalancer.server.port=8080"
+  #   environment:
+  #     - POSTGRES_DB_URL=${IDM_API_DB_URL:?ERROR IDM_API_DB_URL NOT SET}
+  #     - POSTGRES_USERNAME=${IDM_API_USERNAME:?ERROR IDM_API_USERNAME NOT SET}
+  #     - POSTGRES_PASSWORD=${IDM_API_PASSWORD:?ERROR IDM_API_PASSWORD NOT SET}
+  #     - PULSAR_SERVICE_URL=${PULSAR_URL:?ERROR PULSAR_URL NOT SET}
+  #     - PROFILE=${PROFILE:-prod}
+  #     - KEYCLOAK_USERNAME=${KEYCLOAK_USERNAME:?ERROR KEYCLOAK_USERNAME NOT SET}
+  #     - KEYCLOAK_PASSWORD=${KEYCLOAK_PASSWORD:?ERROR KEYCLOAK_PASSWORD NOT SET}
+  #     - KEYCLOAK_REALM=${KEYCLOAK_REALM:?ERROR KEYCLOAK_REALM NOT SET}
+  #     - KEYCLOAK_SERVER_URL=${KEYCLOAK_SERVER_URL:?ERROR KEYCLOAK_SERVER_URL NOT SET}
+  #     - KEYCLOAK_BASE_CLIENT=${KEYCLOAK_REALM:?ERROR KEYCLOAK_REALM NOT SET}
+  #     - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:?ERROR KEYCLOAK_CLIENT_ID NOT SET}
+  #     - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:?ERROR KEYCLOAK_CLIENT_SECRET NOT SET}
+  #     - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:?ERROR SUPER_ADMIN_EMAIL NOT SET}
+  #     - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:?ERROR SUPER_ADMIN_PASSWORD NOT SET}
+  #     - SUPER_ADMIN_FIRSTNAME=${SUPER_ADMIN_FIRSTNAME:?ERROR SUPER_ADMIN_FIRSTNAME NOT SET}
+  #     - SUPER_ADMIN_LASTNAME=${SUPER_ADMIN_LASTNAME:?ERROR SUPER_ADMIN_LASTNAME NOT SET}
+  #     - ENUM_BACKEND_BASE_URL=${ENUM_BACKEND_BASE_URL:?ERRORENUM_BACKEND_BASE_URL IS NOT SET} 
+  #   networks:
+  #     - enumverse_frontend_net
+
 
   api:
     # container_name: api
@@ -284,17 +336,12 @@ services:
       # Keycloak Connection Details
       - KEYCLOAK_USERNAME=${KC_DB_USERNAME:?ERROR KC_DB_USERNAME NOT SET}
       - KEYCLOAK_PASSWORD=${KC_DB_PASSWORD:?ERROR KC_DB_PASSWORD NOT SET}
-
-      
-      - ${CONF_VOLUME_PGPOOL?ERROR CONF_VOLUME_PGPOOL NOT SET}:/docker-entrypoint-initdb.d
-    # healthcheck:
-    #   test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
+      # - ${CONF_VOLUME_PGPOOL?ERROR CONF_VOLUME_PGPOOL NOT SET}:/docker-entrypoint-initdb.d
     networks:
       - enumverse_postgres_net
       - enumverse_backend_net
+    depends_on:
+      - pg0
 
   # Start zookeeper
   pulsar-zookeeper:
