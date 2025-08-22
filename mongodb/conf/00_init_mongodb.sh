@@ -71,14 +71,14 @@ var rootPassword = '$MONGO_INITDB_ROOT_PASSWORD';
 var admin = db.getSiblingDB('admin');
 admin.auth(rootUser, rootPassword);
 
-var db = db.getSiblingDB('${MONGO_INITDB_DATABASE}');
+var db = db.getSiblingDB('${MONGO_DATABASE}');
 show dbs;
 db.createUser(
   {
     user: "${MONGO_USERNAME}", 
     pwd: "${MONGO_PASSWORD}", 
     roles :[ 
-      {role: "readWrite", db: "${MONGO_INITDB_DATABASE}"}
+      {role: "readWrite", db: "${MONGO_DATABASE}"}
     ]
   }
 );
