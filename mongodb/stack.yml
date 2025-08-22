@@ -4,13 +4,14 @@ networks:
     attachable: true
 
 services:
-  mongo1:
+  mg1:
+    container_name: mg1
     image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
     ports:
       - :${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
     volumes:
-      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/mongodb1:/data/db
-      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/keyFile.pem:/data/keyFile.pem
+      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/mg1:/data/db
+      - ${CONF_VOLUME:?ERROR DATA_VOLUME NOT SET}/keyfile.pem:/data/keyfile.pem
     environment:
       - TZ=Africa/Lagos
       - MONGO_PORT=${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
@@ -27,15 +28,16 @@ services:
       mongod 
       --replSet ${MONGO_REPLSET} 
       --port ${MONGO_PORT}
-      --keyFile /data/keyFile.pem
+      --keyFile /data/keyfile.pem
 
-  mongo2:
+  mg2:
+    container_name: mg2
     image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
     ports:
       - :${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
     volumes:
-      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/mongodb2:/data/db
-      - ${CONF_VOLUME:?ERROR DATA_VOLUME NOT SET}/keyFile.pem:/data/keyFile.pem
+      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/mg2:/data/db
+      - ${CONF_VOLUME:?ERROR DATA_VOLUME NOT SET}/keyfile.pem:/data/keyfile.pem
     environment:
       - TZ=Africa/Lagos
       - MONGO_PORT=${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
@@ -52,15 +54,16 @@ services:
       mongod 
       --replSet ${MONGO_REPLSET} 
       --port ${MONGO_PORT}
-      --keyFile /data/keyFile.pem
+      --keyFile /data/keyfile.pem
 
-  mongo3:
+  mg3:
+    container_name: mg3
     image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
     ports:
       - :${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
     volumes:
-      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/mongodb3:/data/db
-      - ${CONF_VOLUME:?ERROR DATA_VOLUME NOT SET}/keyFile.pem:/data/keyFile.pem
+      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/mg3:/data/db
+      - ${CONF_VOLUME:?ERROR DATA_VOLUME NOT SET}/keyfile.pem:/data/keyfile.pem
     environment:
       - TZ=Africa/Lagos
       - MONGO_PORT=${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
@@ -77,12 +80,12 @@ services:
       mongod 
       --replSet ${MONGO_REPLSET} 
       --port ${MONGO_PORT}
-      --keyFile /data/keyFile.pem
+      --keyFile /data/keyfile.pem
 
   mongo-setup:
     image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
     volumes:
-      - ${DATA_VOLUME:?ERROR DATA_VOLUME NOT SET}/00_init_mongodb.sh:/data/00_init_mongodb.sh
+      - ${CONF_VOLUME:?ERROR DATA_VOLUME NOT SET}/00_init_mongodb.sh:/data/00_init_mongodb.sh
     environment:
       - TZ=Africa/Lagos
       - MONGO_PORT=${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
@@ -105,6 +108,6 @@ services:
     environment:
       - ME_CONFIG_BASICAUTH_USERNAME=${MONGOEXP_USERNAME:?ERROR MONGOEXP_USERNAME NOT SET}
       - ME_CONFIG_BASICAUTH_PASSWORD=${MONGOEXP_PASSWORD:?ERROR MONGOEXP_PASSWORD NOT SET}
-      - ME_CONFIG_MONGODB_URL="mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo1:${MONGO_PORT}/?replicaSet=${MONGO_REPLSET}"
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mg1:${MONGO_PORT}/?replicaSet=${MONGO_REPLSET}
     depends_on:
-      - mongo1
+      - mg1

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-m1=mongo1
-m2=mongo2
-m3=mongo3
+m1=mg1
+m2=mg2
+m3=mg3
 port=${PORT:-27017}
 
 echo "###### Waiting for ${m1} instance startup.."
