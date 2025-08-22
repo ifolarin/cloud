@@ -82,7 +82,7 @@ services:
       --port ${MONGO_PORT}
       --keyFile /data/keyfile.pem
 
-  mongo-setup:
+  mgsetup:
     image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
     volumes:
       - ${CONF_VOLUME:?ERROR DATA_VOLUME NOT SET}/00_init_mongodb.sh:/data/00_init_mongodb.sh
@@ -98,16 +98,23 @@ services:
     networks:
       - enumverse_mongodb_net
     entrypoint: ["/bin/bash", "/data/00_init_mongodb.sh"]
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
-  mongo-express:
+  mgexpress:
     image: mongo-express:latest
     ports:
-      - :8081
+      - 8081:8081
     networks:
       - enumverse_mongodb_net
     environment:
       - ME_CONFIG_BASICAUTH_USERNAME=${MONGOEXP_USERNAME:?ERROR MONGOEXP_USERNAME NOT SET}
       - ME_CONFIG_BASICAUTH_PASSWORD=${MONGOEXP_PASSWORD:?ERROR MONGOEXP_PASSWORD NOT SET}
-      - ME_CONFIG_MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mg1:${MONGO_PORT}/?replicaSet=${MONGO_REPLSET}
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mg1:${MONGO_PORT},mg2:${MONGO_PORT},mg3:${MONGO_PORT}/?replicaSet=${MONGO_REPLSET}&readPreference=primaryPreferred
     depends_on:
       - mg1
