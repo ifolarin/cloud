@@ -1,3 +1,15 @@
+networks:
+  enumverse_frontend_net:
+    external: true
+  enumverse_backend_net:
+    external: true
+  enumverse_pulsar_net:
+    external: true
+  enumverse_postgres_net:
+    external: true
+  enumverse_mongodb_net:
+    external: true
+
 
 x-deploy-replica-common:
   # deploy:
@@ -54,10 +66,10 @@ x-postgres-common:
     resources:
       <<: *compute-small
   healthcheck:
-    test: 'pg_isready -U user --dbname=postgres'
+    test: ["CMD-SHELL","pg_isready -U user --dbname=postgres"]
     interval: 10s
     timeout: 5s
-    retries: 5
+    retries: 3
   networks: &postgres-networks
     - enumverse_postgres_net
 
@@ -120,17 +132,6 @@ x-pulsar-common:
 
 
 
-
-networks:
-  enumverse_frontend_net:
-    external: true
-  enumverse_backend_net:
-    external: true
-  enumverse_pulsar_net:
-    external: true
-  enumverse_postgres_net:
-    external: true
-
 services:
   web:
     image: nginx:latest
@@ -168,16 +169,18 @@ services:
     networks:
       - enumverse_frontend_net
 
-
+###########################################################################################################
+# IDM API
+###########################################################################################################
   idm_api:
     image: ${IDM_API_IMAGE:?ERROR IDM_API_IMAGE NOT SET}
     deploy:
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 1G
+      # resources:
+      #   limits:
+      #     cpus: "0.50"
+      #     memory: 1G
       mode: replicated
-      replicas: 2
+      replicas: 1
       update_config:
         failure_action: rollback
         order: start-first
@@ -189,7 +192,7 @@ services:
       restart_policy:
         condition: on-failure
         delay: 10s
-        max_attempts: 5
+        max_attempts: 3
         window: 60s
       labels:
         - "traefik.enable=true"
@@ -204,9 +207,10 @@ services:
         # - "traefik.http.middlewares.idmstripprefix.idmaddprefix.prefixes=/api/v2"
         - "traefik.http.routers.idm_api.middlewares=idmreplacepathregex"
         - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.regex=^/identity/(.*)"
-        - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.replacement=^/api/v2/$$1"
+        - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.replacement=^${IDM_API_PATH_PREFIX:?ERROR IDM_API_PATH_PREFIX NOT SET}/$$1"
     environment:
-      - POSTGRES_DB_URL=${IDM_DB_URL:?ERROR IDM_DB_URL NOT SET}
+      - POSTGRES_DB_URL=jdbc:postgresql://${IDM_DB_HOST:?ERROR IDM_DB_HOST NOT SET}:${IDM_DB_PORT:?ERROR IDM_DB_PORT NOT SET}/${IDM_DB_DATABASE:?ERROR IDM_DB_DATABASE NOT SET}
+      # - POSTGRES_DB_URL=${IDM_DB_URL:?ERROR IDM_DB_URL NOT SET}
       - POSTGRES_USERNAME=${IDM_DB_USERNAME:?ERROR IDM_DB_USERNAME NOT SET}
       - POSTGRES_PASSWORD=${IDM_DB_PASSWORD:?ERROR IDM_DB_PASSWORD NOT SET}
       - PULSAR_SERVICE_URL=${IDM_PULSAR_URL:?ERROR IDM_PULSAR_URL NOT SET}
@@ -214,18 +218,23 @@ services:
       - KEYCLOAK_USERNAME=${IDM_KEYCLOAK_USERNAME:?ERROR IDM_KEYCLOAK_USERNAME NOT SET}
       - KEYCLOAK_PASSWORD=${IDM_KEYCLOAK_PASSWORD:?ERROR IDM_KEYCLOAK_PASSWORD NOT SET}
       - KEYCLOAK_REALM=${IDM_KEYCLOAK_REALM:?ERROR IDM_KEYCLOAK_REALM NOT SET}
+      - KEYCLOAK_MASTER_REALM=${IDM_KEYCLOAK_MASTER_REALM:?ERROR IDM_KEYCLOAK_MASTER_REALM NOT SET}
       - KEYCLOAK_SERVER_URL=${IDM_KEYCLOAK_SERVER_URL:?ERROR IDM_KEYCLOAK_SERVER_URL NOT SET}
-      - KEYCLOAK_BASE_CLIENT=${IDM_KEYCLOAK_REALM:?ERROR IDM_KEYCLOAK_REALM NOT SET}
-      - KEYCLOAK_CLIENT_ID=${IDM_KEYCLOAK_CLIENT_ID:?ERROR IDM_KEYCLOAK_CLIENT_ID NOT SET}
-      - KEYCLOAK_CLIENT_SECRET=${IDM_KEYCLOAK_CLIENT_SECRET:?ERROR IDM_KEYCLOAK_CLIENT_SECRET NOT SET}
+      - KEYCLOAK_BASE_CLIENT=${IDM_KEYCLOAK_BASE_CLIENT:?ERROR IDM_KEYCLOAK_BASE_CLIENT NOT SET}
+      - CLIENT_ID=${IDM_KEYCLOAK_CLIENT_ID:?ERROR IDM_KEYCLOAK_CLIENT_ID NOT SET}
+      - CLIENT_SECRET=${IDM_KEYCLOAK_CLIENT_SECRET:?ERROR IDM_KEYCLOAK_CLIENT_SECRET NOT SET}
       - SUPER_ADMIN_EMAIL=${IDM_SUPER_ADMIN_EMAIL:?ERROR IDM_SUPER_ADMIN_EMAIL NOT SET}
       - SUPER_ADMIN_PASSWORD=${IDM_SUPER_ADMIN_PASSWORD:?ERROR IDM_SUPER_ADMIN_PASSWORD NOT SET}
       - SUPER_ADMIN_FIRSTNAME=${IDM_SUPER_ADMIN_FIRSTNAME:?ERROR IDM_SUPER_ADMIN_FIRSTNAME NOT SET}
       - SUPER_ADMIN_LASTNAME=${IDM_SUPER_ADMIN_LASTNAME:?ERROR IDM_SUPER_ADMIN_LASTNAME NOT SET}
       - ENUM_BACKEND_BASE_URL=${IDM_ENUM_BACKEND_BASE_URL:?ERROR IDM_ENUM_BACKEND_BASE_URL IS NOT SET} 
       - SUPPORT_EMAIL=${IDM_SUPPORT_EMAIL:?ERROR IDM_SUPPORT_EMAIL NOT SET}
+      - LOG_LEVEL=${IDM_LOG_LEVEL:-INFO}
+      - ALLOWED_ORIGINS=${IDM_ALLOWED_ORIGINS:?ERROR IDM_ALLOWED_ORIGINS NOT SET}
     networks:
       - enumverse_frontend_net
+      - enumverse_backend_net
+      - enumverse_postgres_net
 
 
   api:
@@ -355,6 +364,9 @@ services:
       - enumverse_backend_net
     depends_on:
       - pg0
+      - pg1
+      - pg2
+
 
   # Start zookeeper
   pulsar-zookeeper:
@@ -496,3 +508,186 @@ services:
       - ":8080"
     command: bash -c "bin/apply-config-from-env.py conf/broker.conf && exec bin/pulsar broker"
 
+###########################################################################
+# MONGODB REPLICA SET
+###########################################################################
+  mg1:
+    container_name: mg1
+    image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
+    ports:
+      - :${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
+    volumes:
+      - ${DATA_VOLUME_MG:?ERROR DATA_VOLUME_MG NOT SET}/mg1:/data/db
+      - ${CONF_VOLUME_MG:?ERROR DATA_VOLUME_MG NOT SET}/keyfile.pem:/data/keyfile.pem
+    environment:
+      - TZ=Africa/Lagos
+      - MONGO_PORT=${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:?ERROR MONGO_INITDB_ROOT_USERNAME NOT SET}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:?ERROR MONGO_INITDB_ROOT_PASSWORD NOT SET}
+      - MONGO_DATABASE=${MONGO_DATABASE:?ERROR MONGO_DATABASE NOT SET}
+      - MONGO_USERNAME=${MONGO_USERNAME:?ERROR MONGO_USERNAME NOT SET}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:?ERROR MONGO_PASSWORD NOT SET}
+      - MONGO_REPLSET=${MONGO_REPLSET:?ERROR MONGO_REPLSET NOT SET}
+      - DATABASE_URL=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin
+    networks:
+      - enumverse_mongodb_net
+    command: |
+      mongod 
+      --replSet ${MONGO_REPLSET} 
+      --port ${MONGO_PORT}
+      --keyFile /data/keyfile.pem
+
+  mg2:
+    container_name: mg2
+    image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
+    ports:
+      - :${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
+    volumes:
+      - ${DATA_VOLUME_MG:?ERROR DATA_VOLUME_MG NOT SET}/mg2:/data/db
+      - ${CONF_VOLUME_MG:?ERROR DATA_VOLUME_MG NOT SET}/keyfile.pem:/data/keyfile.pem
+    environment:
+      - TZ=Africa/Lagos
+      - MONGO_PORT=${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:?ERROR MONGO_INITDB_ROOT_USERNAME NOT SET}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:?ERROR MONGO_INITDB_ROOT_PASSWORD NOT SET}
+      - MONGO_DATABASE=${MONGO_DATABASE:?ERROR MONGO_DATABASE NOT SET}
+      - MONGO_USERNAME=${MONGO_USERNAME:?ERROR MONGO_USERNAME NOT SET}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:?ERROR MONGO_PASSWORD NOT SET}
+      - MONGO_REPLSET=${MONGO_REPLSET:?ERROR MONGO_REPLSET NOT SET}
+      - DATABASE_URL=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin
+    networks:
+      - enumverse_mongodb_net
+    command: |
+      mongod 
+      --replSet ${MONGO_REPLSET} 
+      --port ${MONGO_PORT}
+      --keyFile /data/keyfile.pem
+
+  mg3:
+    container_name: mg3
+    image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
+    ports:
+      - :${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
+    volumes:
+      - ${DATA_VOLUME_MG:?ERROR DATA_VOLUME_MG NOT SET}/mg3:/data/db
+      - ${CONF_VOLUME_MG:?ERROR DATA_VOLUME_MG NOT SET}/keyfile.pem:/data/keyfile.pem
+    environment:
+      - TZ=Africa/Lagos
+      - MONGO_PORT=${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:?ERROR MONGO_INITDB_ROOT_USERNAME NOT SET}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:?ERROR MONGO_INITDB_ROOT_PASSWORD NOT SET}
+      - MONGO_DATABASE=${MONGO_DATABASE:?ERROR MONGO_DATABASE NOT SET}
+      - MONGO_USERNAME=${MONGO_USERNAME:?ERROR MONGO_USERNAME NOT SET}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:?ERROR MONGO_PASSWORD NOT SET}
+      - MONGO_REPLSET=${MONGO_REPLSET:?ERROR MONGO_REPLSET NOT SET}
+      - DATABASE_URL=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin
+    networks:
+      - enumverse_mongodb_net
+    command: |
+      mongod 
+      --replSet ${MONGO_REPLSET} 
+      --port ${MONGO_PORT}
+      --keyFile /data/keyfile.pem
+
+  mgsetup:
+    image: ${MONGO_IMAGE:?ERROR MONGO_IMAGE NOT SET}
+    volumes:
+      - ${CONF_VOLUME_MG:?ERROR DATA_VOLUME_MG NOT SET}/00_init_mongodb.sh:/data/00_init_mongodb.sh
+    environment:
+      - TZ=Africa/Lagos
+      - MONGO_PORT=${MONGO_PORT:?ERROR MONGO_PORT NOT SET}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:?ERROR MONGO_INITDB_ROOT_USERNAME NOT SET}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:?ERROR MONGO_INITDB_ROOT_PASSWORD NOT SET}
+      - MONGO_DATABASE=${MONGO_DATABASE:?ERROR MONGO_DATABASE NOT SET}
+      - MONGO_USERNAME=${MONGO_USERNAME:?ERROR MONGO_USERNAME NOT SET}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:?ERROR MONGO_PASSWORD NOT SET}
+      - MONGO_REPLSET=${MONGO_REPLSET:?ERROR MONGO_REPLSET NOT SET}
+    networks:
+      - enumverse_mongodb_net
+    entrypoint: ["/bin/bash", "/data/00_init_mongodb.sh"]
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 30s
+
+  mgexpress:
+    image: mongo-express:latest
+    ports:
+      - 8081:8081
+    networks:
+      - enumverse_mongodb_net
+    environment:
+      - ME_CONFIG_BASICAUTH_USERNAME=${MONGOEXP_USERNAME:?ERROR MONGOEXP_USERNAME NOT SET}
+      - ME_CONFIG_BASICAUTH_PASSWORD=${MONGOEXP_PASSWORD:?ERROR MONGOEXP_PASSWORD NOT SET}
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mg1:${MONGO_PORT},mg2:${MONGO_PORT},mg3:${MONGO_PORT}/?replicaSet=${MONGO_REPLSET}&readPreference=primaryPreferred
+    depends_on:
+      - mg1
+
+###########################################################################################################
+# KEYCLOAK
+###########################################################################################################
+  keycloak:
+    image: semicolon/keycloak:26.3.1-0
+    ports:
+      - :8443
+      - :8080
+      - :9000
+    environment:
+      - TZ=Africa/Lagos
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:?ERROR ENV KC_BOOTSTRAP_ADMIN_USERNAME NOT SET}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:?ERROR ENV KC_BOOTSTRAP_ADMIN_PASSWORD NOT SET}
+      - KC_DB_URL_HOST=${KC_DB_HOST:?ERROR KC_DB_HOST NOT SET}
+      - KC_DB_URL_PORT=${KC_DB_PORT:?ERROR KC_DB_PORT NOT SET}
+      - KC_DB_URL_DATABASE=${KC_DB_DATABASE:?ERROR KC_DB_DATABASE NOT SET}
+      - KC_DB_USERNAME=${KC_DB_USERNAME:?ERROR KC_DB_USERNAME NOT SET}
+      - KC_DB_PASSWORD=${KC_DB_PASSWORD:?ERROR KC_DB_PASSWORD NOT SET}
+      - KC_PROXY_ADDRESS_FORWARDING=true
+      - KC_PROXY_HEADERS=xforwarded
+      # - KC_HOSTNAME_STRICT=false
+      # - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_HOSTNAME=${KC_HOSTNAME:?ERROR KC_HOSTNAME NOT SET}
+      - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=false
+      - KC_HTTP_ENABLED=true
+    volumes:
+      - ${DATA_VOLUME_KC:?ERROR DATA_VOLUME_KC NOT SET}/data:/opt/keycloak/data
+      - ${CONF_VOLUME_KC:?ERROR CONF_VOLUME_KC NOT SET}/enumverse-realm-export.json:/opt/keycloak/data/import/enumverse-realm-export.json
+    command: start --optimized --verbose --import-realm  # --hostname https://idm.enumverse.dev --http-enabled true  --hostname-backchannel-dynamic true --proxy-headers xforwarded 
+    # healthcheck:
+    #   test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000;echo -e \"GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 5
+    #   start_period: 30s
+    networks:
+      - enumverse_postgres_net
+      - enumverse_frontend_net
+    deploy:
+      # resources:
+      #   limits:
+      #     cpus: "0.20"
+      #     memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.rule=Host(`${KC_DOMAIN:?ERROR KC_DOMAIN NOT SET}`)"
+      - "traefik.http.routers.keycloak.entrypoints=websecure"
+      - "traefik.http.routers.keycloak.tls=true"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=${KC_HTTP_PORT:?ERROR KC_HTTP_PORT NOT SET}"
+      - "traefik.docker.network=enumverse_frontend_net"
