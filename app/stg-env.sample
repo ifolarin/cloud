@@ -1,14 +1,15 @@
 # ===============================================================
 #  ENV 
 # ===============================================================
-DOMAIN=enumverse.dev
-DATA_VOLUME=${PWD}/data
+DOMAIN=stg.enumverse.com
+BASE_PATH=/srv/staging/enumverse/app
+DATA_VOLUME=${BASE_PATH:?ERROR BASE_PATH NOT SET}/data
 DATA_VOLUME_PG=${DATA_VOLUME}/postgres
 DATA_VOLUME_KC=${DATA_VOLUME}/keycloak
 DATA_VOLUME_PS=${DATA_VOLUME}/pulsar
 DATA_VOLUME_MG=${DATA_VOLUME}/mongo
 
-CONF_VOLUME=${PWD}/conf
+CONF_VOLUME=${BASE_PATH:?ERROR BASE_PATH NOT SET}/conf
 CONF_VOLUME_PG=${CONF_VOLUME}/postgres
 CONF_VOLUME_KC=${CONF_VOLUME}/keycloak
 CONF_VOLUME_MG=${CONF_VOLUME}/mongo

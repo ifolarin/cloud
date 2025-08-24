@@ -1,13 +1,15 @@
 networks:
-  enumverse_frontend_net:
+  edge:
     external: true
-  enumverse_backend_net:
+  stg_enum_frontend_net:
     external: true
-  enumverse_pulsar_net:
+  stg_enum_backend_net:
     external: true
-  enumverse_postgres_net:
+  stg_enum_pulsar_net:
     external: true
-  enumverse_mongodb_net:
+  stg_enum_postgres_net:
+    external: true
+  stg_enum_mongodb_net:
     external: true
 
 
@@ -71,7 +73,7 @@ x-postgres-common:
     timeout: 5s
     retries: 3
   networks: &postgres-networks
-    - enumverse_postgres_net
+    - stg_enum_postgres_net
 
 x-postgres_replica:
   &postgres_replica
@@ -122,7 +124,7 @@ x-web-healthcheck:
      start_period: 20s
 
 x-pulsar-networks: &pulsar-common-network
-  enumverse_pulsar_net
+  stg_enum_pulsar_net
 
 x-pulsar-common:
   &pulsar-common
@@ -142,7 +144,7 @@ services:
           cpus: "0.20"
           memory: 256M
       mode: replicated
-      replicas: 2
+      replicas: 1
       update_config:
         failure_action: rollback
         order: start-first
@@ -158,16 +160,23 @@ services:
         window: 60s
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.webapp.rule=Host(`enumverse.dev`) ||  Host(`www.enumverse.dev`)"
-        - "traefik.http.routers.webapp.entrypoints=websecure"
-        - "traefik.http.routers.webapp.tls=true"
+        # - "traefik.http.routers.webapp.rule=Host(`test.${DOMAIN}`)"
+        # - "traefik.http.routers.webapp.entrypoints=web"
+        - "traefik.http.routers.webapps.tls=true"
+        - "traefik.http.routers.webapps.tls.certresolver=cloudflare"
+        - "traefik.http.routers.webapps.entrypoints=websecure"
+        - "traefik.http.routers.webapps.rule=Host(`test.${DOMAIN}`)"
         - "traefik.http.services.webapp.loadbalancer.server.port=80"
-        - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^https://www\\.(.*)"
-        - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=https://$${1}"
-        - "traefik.http.routers.webapp.middlewares=mywwwredirect"
-        - "traefik.docker.network=enumverse_frontend_net"
+        # - "traefik.http.routers.webapp.rule=Host(`${DOMAIN}`) ||  Host(`www.${DOMAIN}`)"
+        # - "traefik.http.routers.webapp.entrypoints=websecure"
+        # - "traefik.http.routers.webapp.tls=true"
+        # - "traefik.http.services.webapp.loadbalancer.server.port=80"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^https://www\\.(.*)"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=https://$${1}"
+        # - "traefik.http.routers.webapp.middlewares=mywwwredirect"
+        # - "traefik.docker.network=stg_enum_frontend_net"
     networks:
-      - enumverse_frontend_net
+      - edge 
 
 ###########################################################################################################
 # IDM API
@@ -194,20 +203,20 @@ services:
         delay: 10s
         max_attempts: 3
         window: 60s
-      labels:
-        - "traefik.enable=true"
-        - "traefik.http.routers.idm_api.entrypoints=websecure"
-        - "traefik.http.routers.idm_api.tls=true"
-        - "traefik.http.routers.idm_api.rule=Host(`${DOMAIN:?ERROR DOMAIN NOT SET}`) && PathPrefix(`/${IDM_APP_PATH_PREFIX}/`)"
-        # - "traefik.http.routers.idm_api.rule=Host(`enumverse.dev/identity`)"
-        - "traefik.http.services.idm_api.loadbalancer.server.port=8080"
-        # - "traefik.http.routers.idm_api.middlewares=idmstripprefix"
-        # - "traefik.http.middlewares.idmstripprefix.stripprefix.prefixes=/identity"
-        # - "traefik.http.routers.idm_api.middlewares=idmaddprefix"
-        # - "traefik.http.middlewares.idmstripprefix.idmaddprefix.prefixes=/api/v2"
-        - "traefik.http.routers.idm_api.middlewares=idmreplacepathregex"
-        - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.regex=^/${IDM_APP_PATH_PREFIX}/(.*)"
-        - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.replacement=^/${IDM_API_PATH_PREFIX:?ERROR IDM_API_PATH_PREFIX NOT SET}/$$1"
+      # labels:
+      #   - "traefik.enable=true"
+      #   - "traefik.http.routers.idm_api.entrypoints=websecure"
+      #   - "traefik.http.routers.idm_api.tls=true"
+      #   - "traefik.http.routers.idm_api.rule=Host(`idm.${DOMAIN:?ERROR DOMAIN NOT SET}`) && PathPrefix(`${IDM_APP_PATH:?ERROR IDM_APP_PATH NOT SET}/`)"
+      #   # - "traefik.http.routers.idm_api.rule=Host(`enumverse.dev/identity`)"
+      #   - "traefik.http.services.idm_api.loadbalancer.server.port=8080"
+      #   # - "traefik.http.routers.idm_api.middlewares=idmstripprefix"
+      #   # - "traefik.http.middlewares.idmstripprefix.stripprefix.prefixes=/identity"
+      #   # - "traefik.http.routers.idm_api.middlewares=idmaddprefix"
+      #   # - "traefik.http.middlewares.idmstripprefix.idmaddprefix.prefixes=/api/v2"
+      #   - "traefik.http.routers.idm_api.middlewares=idmreplacepathregex"
+      #   - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.regex=^${IDM_APP_PATH}/(.*)"
+      #   - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.replacement=^${IDM_API_PATH_PREFIX:?ERROR IDM_API_PATH_PREFIX NOT SET}/$$1"
     environment:
       - POSTGRES_DB_URL=jdbc:postgresql://${IDM_DB_HOST:?ERROR IDM_DB_HOST NOT SET}:${IDM_DB_PORT:?ERROR IDM_DB_PORT NOT SET}/${IDM_DB_DATABASE:?ERROR IDM_DB_DATABASE NOT SET}
       # - POSTGRES_DB_URL=${IDM_DB_URL:?ERROR IDM_DB_URL NOT SET}
@@ -232,9 +241,10 @@ services:
       - LOG_LEVEL=${IDM_LOG_LEVEL:-INFO}
       - ALLOWED_ORIGINS=${IDM_ALLOWED_ORIGINS:?ERROR IDM_ALLOWED_ORIGINS NOT SET}
     networks:
-      - enumverse_frontend_net
-      - enumverse_backend_net
-      - enumverse_postgres_net
+      - edge
+      - stg_enum_frontend_net
+      - stg_enum_backend_net
+      - stg_enum_postgres_net
 
 
   api:
@@ -261,17 +271,18 @@ services:
         delay: 10s
         max_attempts: 5
         window: 60s
-      labels:
-        - "traefik.enable=true"
-        - "traefik.http.routers.webapi.entrypoints=websecure"
-        - "traefik.http.routers.webapi.rule=Host(`web.enumverse.dev`) && PathPrefix(`/api`)"
-        - "traefik.http.routers.webapi.middlewares=myappstripprefix"
-        - "traefik.http.middlewares.myappstripprefix.stripprefix.prefixes=/api"
-        - "traefik.http.routers.webapi.tls=true"
-        - "traefik.http.services.webapi.loadbalancer.server.port=80"
+      # labels:
+      #   - "traefik.enable=true"
+      #   - "traefik.http.routers.webapi.entrypoints=websecure"
+      #   - "traefik.http.routers.webapi.rule=Host(`web.${DOMAIN}`) && PathPrefix(`/api`)"
+      #   - "traefik.http.routers.webapi.middlewares=myappstripprefix"
+      #   - "traefik.http.middlewares.myappstripprefix.stripprefix.prefixes=/api"
+      #   - "traefik.http.routers.webapi.tls=true"
+      #   - "traefik.http.services.webapi.loadbalancer.server.port=80"
     networks:
-      - enumverse_frontend_net
-      - enumverse_backend_net
+      - edge
+      - stg_enum_frontend_net
+      - stg_enum_backend_net
       
   pg0:
     <<: *postgres-common
@@ -360,8 +371,8 @@ services:
       - IDM_PASSWORD=${IDM_DB_PASSWORD:?ERROR IDM_DB_PASSWORD NOT SET}
       # - ${CONF_VOLUME_PGPOOL?ERROR CONF_VOLUME_PGPOOL NOT SET}:/docker-entrypoint-initdb.d
     networks:
-      - enumverse_postgres_net
-      - enumverse_backend_net
+      - stg_enum_postgres_net
+      - stg_enum_backend_net
     depends_on:
       - pg0
       - pg1
@@ -470,7 +481,7 @@ services:
     <<: *pulsar-common
     networks: 
       - *pulsar-common-network
-      - enumverse_backend_net
+      - stg_enum_backend_net
     deploy:
       resources:
         limits:
@@ -530,7 +541,7 @@ services:
       - MONGO_REPLSET=${MONGO_REPLSET:?ERROR MONGO_REPLSET NOT SET}
       - DATABASE_URL=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin
     networks:
-      - enumverse_mongodb_net
+      - stg_enum_mongodb_net
     command: |
       mongod 
       --replSet ${MONGO_REPLSET} 
@@ -556,7 +567,7 @@ services:
       - MONGO_REPLSET=${MONGO_REPLSET:?ERROR MONGO_REPLSET NOT SET}
       - DATABASE_URL=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin
     networks:
-      - enumverse_mongodb_net
+      - stg_enum_mongodb_net
     command: |
       mongod 
       --replSet ${MONGO_REPLSET} 
@@ -582,7 +593,7 @@ services:
       - MONGO_REPLSET=${MONGO_REPLSET:?ERROR MONGO_REPLSET NOT SET}
       - DATABASE_URL=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin
     networks:
-      - enumverse_mongodb_net
+      - stg_enum_mongodb_net
     command: |
       mongod 
       --replSet ${MONGO_REPLSET} 
@@ -603,7 +614,7 @@ services:
       - MONGO_PASSWORD=${MONGO_PASSWORD:?ERROR MONGO_PASSWORD NOT SET}
       - MONGO_REPLSET=${MONGO_REPLSET:?ERROR MONGO_REPLSET NOT SET}
     networks:
-      - enumverse_mongodb_net
+      - stg_enum_mongodb_net
     entrypoint: ["/bin/bash", "/data/00_init_mongodb.sh"]
     deploy:
       replicas: 1
@@ -618,7 +629,7 @@ services:
     ports:
       - 8081:8081
     networks:
-      - enumverse_mongodb_net
+      - stg_enum_mongodb_net
     environment:
       - ME_CONFIG_BASICAUTH_USERNAME=${MONGOEXP_USERNAME:?ERROR MONGOEXP_USERNAME NOT SET}
       - ME_CONFIG_BASICAUTH_PASSWORD=${MONGOEXP_PASSWORD:?ERROR MONGOEXP_PASSWORD NOT SET}
@@ -662,8 +673,9 @@ services:
     #   retries: 5
     #   start_period: 30s
     networks:
-      - enumverse_postgres_net
-      - enumverse_frontend_net
+      - edge
+      - stg_enum_postgres_net
+      - stg_enum_frontend_net
     deploy:
       # resources:
       #   limits:
@@ -684,10 +696,10 @@ services:
         delay: 10s
         max_attempts: 5
         window: 60s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.keycloak.rule=Host(`${KC_DOMAIN:?ERROR KC_DOMAIN NOT SET}`)"
-      - "traefik.http.routers.keycloak.entrypoints=websecure"
-      - "traefik.http.routers.keycloak.tls=true"
-      - "traefik.http.services.keycloak.loadbalancer.server.port=${KC_HTTP_PORT:?ERROR KC_HTTP_PORT NOT SET}"
-      - "traefik.docker.network=enumverse_frontend_net"
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.keycloak.rule=Host(`${KC_DOMAIN:?ERROR KC_DOMAIN NOT SET}`)"
+    #   - "traefik.http.routers.keycloak.entrypoints=websecure"
+    #   - "traefik.http.routers.keycloak.tls=true"
+    #   - "traefik.http.services.keycloak.loadbalancer.server.port=${KC_HTTP_PORT:?ERROR KC_HTTP_PORT NOT SET}"
+    #   - "traefik.docker.network=edge"

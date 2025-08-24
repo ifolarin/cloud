@@ -1,8 +1,9 @@
 #!/bin/bash
 set -a
-source .env
+source .stg-env
 set +a
 
+ssh -tt labs-ovh-prod-01 << EOF
 #################################################################################
 # POSTGRES FOLDER
 #################################################################################
@@ -42,4 +43,6 @@ chown -R $PGUID:$PGGID ${DATA_VOLUME_MG?[ERROR] DATA_VOLUME_MG NOT SET}
 chown -R $PGUID:$PGGID ${CONF_VOLUME_MG?[ERROR] CONF_VOLUME_MG NOT SET}
 chmod -R 0775 ${DATA_VOLUME_MG}
 chmod -R 0775 ${CONF_VOLUME_MG}
-chmod -R 0400 ${CONF_VOLUME_MG}/keyfile.pem
+# chmod -R 0400 ${CONF_VOLUME_MG}/keyfile.pem
+exit
+EOF

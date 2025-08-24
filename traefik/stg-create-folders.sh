@@ -7,9 +7,7 @@ set -a
 source ./.stg-env
 set +a
 
-vol=${DATA_VOLUME?:ERROR DATA_VOLUME NOT SET}/data
-# PGUID=70
-# PGGID=70
+vol=${DATA_VOLUME?:ERROR DATA_VOLUME NOT SET}/{data,certs,logs}
 echo "####### creating folder $vol..."
 ssh -tt labs-ovh-prod-01 << EOF
 mkdir -p $vol

@@ -1,4 +1,5 @@
 postgres/data
 **/.env
+**/.*-env
 **/data/
 **/certs/
