@@ -77,9 +77,10 @@ services:
         - "traefik.backend=dashboard"
         - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
         - "traefik.http.routers.traefik.entrypoints=websecure"
-        - "traefik.http.routers.traefik.entrypoints=web"
+        # - "traefik.http.routers.traefik.entrypoints=web"
         - "traefik.http.routers.traefik.service=api@internal"
         - "traefik.http.routers.traefik.tls=true"
+        - "traefik.http.routers.traefik.tls.certresolver=cloudflare"
         # - "traefik.http.routers.traefik.middlewares=authelia@docker"
         - "traefik.http.services.traefik.loadbalancer.server.port=8080"
       update_config:
@@ -91,7 +92,7 @@ services:
         delay: 10s
         monitor: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
         max_attempts: 5
         window: 60s

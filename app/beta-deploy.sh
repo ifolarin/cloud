@@ -1,15 +1,14 @@
 #!/bin/bash
-echo "####### sourcing staging env variables..."
-set -a
-source ./.stg-env
-set +a
-stack=edge
-compose=stg-stack.yml
+set -a 
+source ./.beta-env 
+set +a 
+
+stack=beta-enum
 context=stg-docker
+compose=stg-stack.yml
 echo "####### switching docker context ..."
 docker context use $context
-docker network inspect edge >/dev/null 2>&1 || docker network create --driver overlay --scope swarm --attachable edge && \
-docker network ls
+docker stack config -c $compose
 docker stack deploy --with-registry-auth -c $compose $stack
 docker stack ls
 docker stack ps $stack

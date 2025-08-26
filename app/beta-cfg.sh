@@ -1,7 +1,7 @@
 #!/bin/bash
 set -a 
 echo "####### sourcing staging env variables..."
-source ./.stg-env 
+source ./.beta-env 
 set +a 
 compose=stg-stack.yml
 context=stg-docker

@@ -1,6 +1,6 @@
 TRAEFIK_LOG_LEVEL=DEBUG
 TRAEFIK_IMAGE=docker.io/library/traefik:v3.5.0
-DATA_VOLUME=/srv/traefik
+DATA_VOLUME=/srv/edge/traefik
 DOMAIN=stg.enumverse.com
 CF_DNS_API_TOKEN=sNNGqgaOeqmsOyuM7Rj4O4OEPhb0Mz8S0F7JNDvf
 CF_API_EMAIL=labs@semicolon.africa

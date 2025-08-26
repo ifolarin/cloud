@@ -1,3 +1,11 @@
+volumes:
+  pg0_vol:
+    external: true
+  pg1_vol:
+    external: true
+  pg2_vol:
+    external: true
+
 networks:
   edge:
     external: true
@@ -17,7 +25,7 @@ x-deploy-replica-common:
   # deploy:
   &deploy-replica-common
   mode: replicated
-  replicas: 2
+  replicas: 1
 
 x-deploy-cpu-common:
   # deploy: 
@@ -63,10 +71,10 @@ x-postgres-common:
   &postgres-common
   image: postgres:17.6-alpine3.22
   user: postgres
-  deploy: 
-    <<: *deploy-runtime-common
-    resources:
-      <<: *compute-small
+  # deploy: 
+  #   <<: *deploy-runtime-common
+  #   resources:
+  #     <<: *compute-small
   healthcheck:
     test: ["CMD-SHELL","pg_isready -U user --dbname=postgres"]
     interval: 10s
@@ -82,22 +90,6 @@ x-postgres_replica:
     - 5432
   depends_on:
     - pg0
-  command: |
-    bash -c "
-    if ! [ -f /var/lib/postgresql/data/init.lck ]; then 
-      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=$${REPLICATION_SLOT?[ERROR] ENV VAR REPLICATION SLOT NOT SET} --host=pg0 --port=5432
-      do
-      echo 'Waiting for primary to connect...'
-      sleep 1s
-      done
-      echo 'Creating lock...'
-      touch /var/lib/postgresql/data/init.lck
-      echo 'Backup done, starting replica...'
-      chmod 0700 /var/lib/postgresql/data
-    fi
-    postgres
-    # - c promote_trigger_file=''
-    "
   environment: &replica_environments
     PGUSER: ${PGUSER?[ERROR] PGUSER NOT SET}
     PGPASSWORD: ${PGPASSWORD?[ERROR] PGPASSWORD NOT SET}
@@ -154,19 +146,19 @@ services:
         delay: 10s
         monitor: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
         max_attempts: 5
         window: 60s
       labels:
         - "traefik.enable=true"
-        # - "traefik.http.routers.webapp.rule=Host(`test.${DOMAIN}`)"
-        # - "traefik.http.routers.webapp.entrypoints=web"
         - "traefik.http.routers.webapps.tls=true"
         - "traefik.http.routers.webapps.tls.certresolver=cloudflare"
         - "traefik.http.routers.webapps.entrypoints=websecure"
         - "traefik.http.routers.webapps.rule=Host(`test.${DOMAIN}`)"
-        - "traefik.http.services.webapp.loadbalancer.server.port=80"
+        - "traefik.http.services.webapps.loadbalancer.server.port=80"
+        # - "traefik.http.routers.webapp.rule=Host(`test.${DOMAIN}`)"
+        # - "traefik.http.routers.webapp.entrypoints=web"
         # - "traefik.http.routers.webapp.rule=Host(`${DOMAIN}`) ||  Host(`www.${DOMAIN}`)"
         # - "traefik.http.routers.webapp.entrypoints=websecure"
         # - "traefik.http.routers.webapp.tls=true"
@@ -175,6 +167,12 @@ services:
         # - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=https://$${1}"
         # - "traefik.http.routers.webapp.middlewares=mywwwredirect"
         # - "traefik.docker.network=stg_enum_frontend_net"
+        # - "traefik.http.routers.webapp.entrypoints=web"
+        # - "traefik.http.routers.webapp.rule=Host(`test.${DOMAIN}`)"
+        # - "traefik.http.services.webapp.loadbalancer.server.port=80"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^http://www\\.(.*)"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=http://$${1}"
+        # - "traefik.http.routers.webapp.middlewares=mywwwredirect"
     networks:
       - edge 
 
@@ -199,24 +197,62 @@ services:
         delay: 10s
         monitor: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
         max_attempts: 3
         window: 60s
-      # labels:
-      #   - "traefik.enable=true"
-      #   - "traefik.http.routers.idm_api.entrypoints=websecure"
-      #   - "traefik.http.routers.idm_api.tls=true"
-      #   - "traefik.http.routers.idm_api.rule=Host(`idm.${DOMAIN:?ERROR DOMAIN NOT SET}`) && PathPrefix(`${IDM_APP_PATH:?ERROR IDM_APP_PATH NOT SET}/`)"
-      #   # - "traefik.http.routers.idm_api.rule=Host(`enumverse.dev/identity`)"
-      #   - "traefik.http.services.idm_api.loadbalancer.server.port=8080"
-      #   # - "traefik.http.routers.idm_api.middlewares=idmstripprefix"
-      #   # - "traefik.http.middlewares.idmstripprefix.stripprefix.prefixes=/identity"
-      #   # - "traefik.http.routers.idm_api.middlewares=idmaddprefix"
-      #   # - "traefik.http.middlewares.idmstripprefix.idmaddprefix.prefixes=/api/v2"
-      #   - "traefik.http.routers.idm_api.middlewares=idmreplacepathregex"
-      #   - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.regex=^${IDM_APP_PATH}/(.*)"
-      #   - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.replacement=^${IDM_API_PATH_PREFIX:?ERROR IDM_API_PATH_PREFIX NOT SET}/$$1"
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.idm_api.entrypoints=websecure"
+        - "traefik.http.routers.idm_api.tls=true"
+        - "traefik.http.routers.idm_api.tls.certresolver=cloudflare"
+        - "traefik.http.routers.idm_api.rule=Host(`${DOMAIN:?ERROR DOMAIN NOT SET}`) && (PathPrefix(`/${IDM_APP_PATH:?ERROR IDM_APP_PATH NOT SET}/`) || PathPrefix(`/swagger-ui/`) || PathPrefix(`/actuator`))"
+        - "traefik.http.routers.idm_api.priority=20"
+        - "traefik.http.services.idm_api.loadbalancer.server.port=8080"
+        - "traefik.http.services.idm_api.loadbalancer.server.scheme=http"
+        - "traefik.http.routers.idm_api.middlewares=idmapistripprefix"
+        - "traefik.http.middlewares.idmapistripprefix.stripprefix.prefixes=/${IDM_APP_PATH}"
+        # - "traefik.http.routers.idm_api.middlewares=idmreplacepathregex"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.regex=^${IDM_APP_PATH}/(.*)"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.replacement=^${IDM_API_PATH_PREFIX:?ERROR IDM_API_PATH_PREFIX NOT SET}/$$1"
+        # - "traefik.http.routers.idm_api_instr.entrypoints=websecure"
+        # - "traefik.http.routers.idm_api_instr.tls=true"
+        # - "traefik.http.routers.idm_api_instr.tls.certresolver=cloudflare"
+        # - "traefik.http.routers.idm_api_instr.rule=Host(`${DOMAIN}`) && (PathPrefix(`/swagger-ui/`) || PathPrefix(`/actuator/`))"
+        # - "traefik.http.routers.idm_api_instr.priority=10"
+        # - "traefik.http.services.idm_api_instr.loadbalancer.server.port=8080"
+        # - "traefik.http.services.idm_api_instr.loadbalancer.server.scheme=8080"
+        # idm web
+        # - "traefik.http.routers.idm_web.tls=true"
+        # - "traefik.http.routers.idm_web.tls.certresolver=cloudflare"
+        # - "traefik.http.routers.idm_web.entrypoints=websecure"
+        # - "traefik.http.routers.idm_web.rule=Host(`${DOMAIN}`)"
+        # - "traefik.http.routers.idm_web.priority=5"
+        # - "traefik.http.routers.idm_web.service=idm_web"
+        # - "traefik.http.services.idm_web.loadbalancer.server.port=80"
+        #
+        - "traefik.docker.network=edge"
+        # - "traefik.http.routers.idm_web.entrypoints=websecure"
+        # - "traefik.http.routers.idm_web.tls=true"
+        # - "traefik.http.routers.idm_web.rule=Host(`${DOMAIN:?ERROR DOMAIN NOT SET}`)"
+        # - "traefik.http.routers.idm_web.tls.certresolver=cloudflare"
+        # - "traefik.http.routers.idm_web.service=idm_web"
+        # - "traefik.http.routers.idm_web.priority=2"
+        # - "traefik.http.services.idm_web.loadbalancer.server.port=80"
+        # - "traefik.http.routers.idm_api.middlewares=idmreplacepathregex"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.regex=^${IDM_APP_PATH}/(.*)"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex.replacement=^${IDM_API_PATH_PREFIX:?ERROR IDM_API_PATH_PREFIX NOT SET}/$$1"
+        # - "traefik.http.routers.idm_api.rule=Host(`enumverse.dev/identity`)"
+        # - "traefik.http.routers.idm_api.middlewares=idmstripprefix"
+        # - "traefik.http.middlewares.idmstripprefix.stripprefix.prefixes=/identity"
+        # - "traefik.http.routers.idm_api.middlewares=idmaddprefix"
+        # - "traefik.http.middlewares.idmstripprefix.idmaddprefix.prefixes=/api/v2"
+        # - "traefik.http.routers.idm_api_http.entrypoints=web"
+        # - "traefik.http.routers.idm_api_http.rule=Host(`idm.${DOMAIN:?ERROR DOMAIN NOT SET}`) && PathPrefix(`${IDM_APP_PATH:?ERROR IDM_APP_PATH NOT SET}/`)"
+        # - "traefik.http.services.idm_api_http.loadbalancer.server.port=8080"
+        # - "traefik.http.routers.idm_api_http.middlewares=idmreplacepathregex_http"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex_http.regex=^${IDM_APP_PATH}/(.*)"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex_http.replacement=^${IDM_API_PATH_PREFIX:?ERROR IDM_API_PATH_PREFIX NOT SET}/$$1"
     environment:
       - POSTGRES_DB_URL=jdbc:postgresql://${IDM_DB_HOST:?ERROR IDM_DB_HOST NOT SET}:${IDM_DB_PORT:?ERROR IDM_DB_PORT NOT SET}/${IDM_DB_DATABASE:?ERROR IDM_DB_DATABASE NOT SET}
       # - POSTGRES_DB_URL=${IDM_DB_URL:?ERROR IDM_DB_URL NOT SET}
@@ -245,6 +281,415 @@ services:
       - stg_enum_frontend_net
       - stg_enum_backend_net
       - stg_enum_postgres_net
+    # ports:
+    #   - 8090:8080
+
+
+###########################################################################################################
+# IDM WEB
+###########################################################################################################
+  idm_web:
+    image: ${IDM_WEB_IMAGE:?ERROR IDM_WEB_IMAGE NOT SET}
+    # image: nginx:latest
+    # <<: *web-healthcheck
+    deploy:
+      # resources:
+      #   limits:
+      #     cpus: "0.20"
+      #     memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.idm_web.tls=true"
+        - "traefik.http.routers.idm_web.tls.certresolver=cloudflare"
+        - "traefik.http.routers.idm_web.entrypoints=websecure"
+        - "traefik.http.routers.idm_web.rule=Host(`${DOMAIN}`)"
+        - "traefik.http.routers.idm_web.priority=5"
+        - "traefik.http.services.idm_web.loadbalancer.server.port=3000"
+        - "traefik.http.services.idm_web.loadbalancer.server.scheme=http"
+        # - "traefik.http.routers.webapp.rule=Host(`test.${DOMAIN}`)"
+        # - "traefik.http.routers.webapp.entrypoints=web"
+        # - "traefik.http.routers.webapp.rule=Host(`${DOMAIN}`) ||  Host(`www.${DOMAIN}`)"
+        # - "traefik.http.routers.webapp.entrypoints=websecure"
+        # - "traefik.http.routers.webapp.tls=true"
+        # - "traefik.http.services.webapp.loadbalancer.server.port=80"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^https://www\\.(.*)"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=https://$${1}"
+        # - "traefik.http.routers.webapp.middlewares=mywwwredirect"
+        # - "traefik.docker.network=stg_enum_frontend_net"
+        # - "traefik.http.routers.webapp.entrypoints=web"
+        # - "traefik.http.routers.webapp.rule=Host(`test.${DOMAIN}`)"
+        # - "traefik.http.services.webapp.loadbalancer.server.port=80"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.regex=^http://www\\.(.*)"
+        # - "traefik.http.middlewares.mywwwredirect.redirectregex.replacement=http://$${1}"
+        # - "traefik.http.routers.webapp.middlewares=mywwwredirect"
+    networks:
+      - edge 
+    environment:
+      - NEXT_PUBLIC_APPLICATION_API_URL=${NEXT_PUBLIC_APPLICATION_API_URL:?ERROR NEXT_PUBLIC_APPLICATION_API_URL NOT SET}
+      - NEXT_PUBLIC_BACK_OFFICE_FRONTEND_URL=${NEXT_PUBLIC_BACK_OFFICE_FRONTEND_URL:?ERROR NEXT_PUBLIC_BACK_OFFICE_FRONTEND_URL NOT SET}
+      - NEXT_PUBLIC_DEV_AUTH_URL=${NEXT_PUBLIC_DEV_AUTH_URL:?ERROR NEXT_PUBLIC_DEV_AUTH_URL NOT SET}
+      - NEXT_PUBLIC_HUB_FRONTEND_URL=${NEXT_PUBLIC_HUB_FRONTEND_URL:?ERROR NEXT_PUBLIC_HUB_FRONTEND_URL NOT SET}
+      - NEXT_PUBLIC_TALENT_FRONTEND_URL=${NEXT_PUBLIC_TALENT_FRONTEND_URL:?ERROR NEXT_PUBLIC_TALENT_FRONTEND_URL NOT SET}
+      - NEXT_PUBLIC_CONTACT_FORM_RECIPIENT=${NEXT_PUBLIC_CONTACT_FORM_RECIPIENT:?ERROR NEXT_PUBLIC_CONTACT_FORM_RECIPIENT NOT SET}
+      - NEXT_PUBLIC_EVENT_API_URL=${NEXT_PUBLIC_EVENT_API_URL:?ERROR NEXT_PUBLIC_EVENT_API_URL NOT SET}
+      - NEXT_PUBLIC_SMTP_FROM_EMAIL=${NEXT_PUBLIC_SMTP_FROM_EMAIL:?ERROR NEXT_PUBLIC_SMTP_FROM_EMAIL NOT SET}
+      - NEXT_PUBLIC_SMTP_HOST=${NEXT_PUBLIC_SMTP_HOST:?ERROR NEXT_PUBLIC_SMTP_HOST NOT SET}
+      - NEXT_PUBLIC_SMTP_PASSWORD=${NEXT_PUBLIC_SMTP_PASSWORD:?ERROR NEXT_PUBLIC_SMTP_PASSWORD NOT SET}
+      - NEXT_PUBLIC_SMTP_PORT=${NEXT_PUBLIC_SMTP_PORT:?ERROR NEXT_PUBLIC_SMTP_PORT NOT SET}
+      - NEXT_PUBLIC_SMTP_SECURE=${NEXT_PUBLIC_SMTP_SECURE:?ERROR NEXT_PUBLIC_SMTP_SECURE NOT SET}
+      - NEXT_PUBLIC_SMTP_USER=${NEXT_PUBLIC_SMTP_USER:?ERROR NEXT_PUBLIC_SMTP_USER NOT SET}
+      - NEXT_PUBLIC_KC_CLIENT_SECRET=${NEXT_PUBLIC_KC_CLIENT_SECRET:?ERROR NEXT_PUBLIC_KC_CLIENT_SECRET NOT SET}
+      - NEXT_PUBLIC_KC_REALM=${NEXT_PUBLIC_KC_REALM:?ERROR NEXT_PUBLIC_KC_REALM NOT SET}
+      - NEXT_PUBLIC_KC_CLIENT_ID=${NEXT_PUBLIC_KC_CLIENT_ID:?ERROR NEXT_PUBLIC_KC_CLIENT_ID NOT SET}
+      - NEXT_PUBLIC_KC_URL=${NEXT_PUBLIC_KC_URL:?ERROR NEXT_PUBLIC_KC_URL NOT SET}
+      - NEXT_PUBLIC_LINKEDIN_CLIENT_ID=${NEXT_PUBLIC_LINKEDIN_CLIENT_ID:?ERROR NEXT_PUBLIC_LINKEDIN_CLIENT_ID NOT SET}
+      - NEXT_PUBLIC_LINKEDIN_STATE=${NEXT_PUBLIC_LINKEDIN_STATE:?ERROR NEXT_PUBLIC_LINKEDIN_STATE NOT SET}
+      - NEXT_PUBLIC_AWS_ACCESS_KEY=${NEXT_PUBLIC_AWS_ACCESS_KEY:?ERROR NEXT_PUBLIC_AWS_ACCESS_KEY NOT SET}
+      - NEXT_PUBLIC_AWS_BUCKET=${NEXT_PUBLIC_AWS_BUCKET:?ERROR NEXT_PUBLIC_AWS_BUCKET NOT SET}
+      - NEXT_PUBLIC_AWS_REGION=${NEXT_PUBLIC_AWS_REGION:?ERROR NEXT_PUBLIC_AWS_REGION NOT SET}
+      - NEXT_PUBLIC_AWS_SECRET_ACCESS_KEY=${NEXT_PUBLIC_AWS_SECRET_ACCESS_KEY:?ERROR NEXT_PUBLIC_AWS_SECRET_ACCESS_KEY NOT SET}
+      - NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=${NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME:?ERROR NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME NOT SET}
+      - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID:?ERROR NEXT_PUBLIC_GOOGLE_CLIENT_ID NOT SET}
+      - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:?ERROR NEXT_PUBLIC_GOOGLE_MAPS_API_KEY NOT SET}
+
+
+
+
+###########################################################################################################
+# ASSESSMENT API
+###########################################################################################################
+  asmt_api:
+    image: ${ASMT_API_IMAGE:?ERROR ASMT_API_IMAGE NOT SET}
+    deploy:
+      # resources:
+        # limits:
+        #   cpus: "0.20"
+        #   memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+    networks:
+      - edge
+      - stg_enum_frontend_net
+      - stg_enum_backend_net
+      - stg_enum_postgres_net
+      - stg_enum_mongodb_net
+    environment:
+      - PORT = ${ASMT_API_PORT}
+      - PROFILE = ${ASMT_API_PROFILE}
+      - ASSESSMENT_SERVICE_APPLICATION_NAME=${ASMT_APP_NAME}
+      - CLIENT_ID=${ASMT_CLIENT_ID}
+      - CLIENT_SECRET=${ASMT_CLIENT_SECRET}
+      - DATABASE_NAME=${ASMT_DATABASE:?ERROR ASMT_DATABASE NOT SET}
+      # - DATABASE_URL=mongodb://enumverse:siD9JzMcKQ51uglf@mongo.enum.africa:27018/enum-assessment-management-prod?authSource=admin
+      - DATABASE_URL=mongodb://${ASMT_MONGO_USERNAME:?ERROR ASMT_MONGO_USERNAME NOT SET}:${ASMT_MONGO_PASSWORD:?ERROR ASMT_MONGO_PASSWORD NOT SET}@${ASMT_MONGO_SERVERS:?ERROR ASMT_MONGO_SERVERS NOT SET}/${ASMT_DATABASE:?ERROR ASMT_DATABASE NOT SET}?${ASMT_MONGO_SERVER_OPTS:?ERROR ASMT_MONGO_SERVER_OPTS NOT SET} 
+      - KEYCLOAK_PASSWORD=${ASMT_KEYCLOAK_PASSWORD:?ERROR ASMT_KEYCLOAK_PASSWORD NOT SET} # 2ylBeTFTXcQIEraxwwtee
+      - KEYCLOAK_REALM=${ASMT_KEYCLOAK_REALM:?ERROR ASMT_KEYCLOAK_REALM NOT SET} #enumverse-prod
+      - KEYCLOAK_SERVER_URL=${ASMT_KEYCLOAK_SERVER:?ERROR ASMT_KEYCLOAK_SERVER NOT SET} #https://mantra.enum.africa
+      - KEYCLOAK_USERNAME=${ASMT_KEYCLOAK_USERNAME:?ERROR ASTM_KEYCLOAK_USERNAME NOT SET} #dsakjhdsfkjhf
+      - PULSAR_URL=${ASMT_PULSAR_URL:?ERROR ASMT_PULSAR_URL NOT SET} # pulsar://broker-prod:6650
+      - SWAGGER_SERVER_URL=${ASMT_SWAGGER_SERVER:?ERROR ASMT_SWAGGER SERVER NOT SET} #https://enumverse.com/assessment
+      - ENUM_EMAIL=${ASMT_EMAIL:?ERROR ASMT_EMAIL NOT SET} #noreply-dev+support@numverse.com
+      - SUPPORT_EMAIL=${ASMT_SUPPORT_EMAIL:?ERROR ASMT_SUPPORT_EMAIL NOT SET} #techsupport@enumverse.com
+    labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.asmt_api.entrypoints=websecure"
+        - "traefik.http.routers.asmt_api.tls=true"
+        - "traefik.http.routers.asmt_api.rule=Host(`${DOMAIN:?ERROR DOMAIN NOT SET}`) && PathPrefix(`/${ASMT_APP_PATH:?ERROR ASMT_APP_PATH NOT SET}/`)"
+        - "traefik.http.routers.asmt_api.tls.certresolver=cloudflare"
+        - "traefik.http.services.asmt_api.loadbalancer.server.port=8080"
+        - "traefik.http.services.asmt_api.loadbalancer.server.scheme=http"
+        - "traefik.http.routers.asmt_api.middlewares=asmtreplacepathregex"
+        - "traefik.http.middlewares.asmtreplacepathregex.replacepathregex.regex=^${ASMT_APP_PATH}/(.*)"
+        - "traefik.http.middlewares.asmtreplacepathregex.replacepathregex.replacement=^${ASMT_API_PATH_PREFIX:?ERROR ASMT_API_PATH_PREFIX NOT SET}/$$1"
+        - "traefik.docker.network=edge"
+        # - "traefik.http.routers.asmt_api.rule=Host(`enumverse.dev/identity`)"
+        # - "traefik.http.routers.asmt_api.middlewares=idmstripprefix"
+        # - "traefik.http.middlewares.idmstripprefix.stripprefix.prefixes=/identity"
+        # - "traefik.http.routers.asmt_api.middlewares=idmaddprefix"
+        # - "traefik.http.middlewares.idmstripprefix.idmaddprefix.prefixes=/api/v2"
+        # - "traefik.http.routers.asmt_api_http.entrypoints=web"
+        # - "traefik.http.routers.asmt_api_http.rule=Host(`idm.${DOMAIN:?ERROR DOMAIN NOT SET}`) && PathPrefix(`${IDM_APP_PATH:?ERROR IDM_APP_PATH NOT SET}/`)"
+        # - "traefik.http.services.asmt_api_http.loadbalancer.server.port=8080"
+        # - "traefik.http.routers.asmt_api_http.middlewares=idmreplacepathregex_http"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex_http.regex=^${IDM_APP_PATH}/(.*)"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex_http.replacement=^${asmt_api_PATH_PREFIX:?ERROR asmt_api_PATH_PREFIX NOT SET}/$$1"
+ 
+###########################################################################################################
+# ASSESSMENT WEB
+###########################################################################################################
+  asmt_web:
+    image: ${ASMT_WEB_IMAGE:?ERROR ASMT_WEB_IMAGE NOT SET}
+    # image: nginx:latest
+    # <<: *web-healthcheck
+    deploy:
+      # resources:
+      #   limits:
+      #     cpus: "0.20"
+      #     memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.asmt_web.tls=true"
+        - "traefik.http.routers.asmt_web.tls.certresolver=cloudflare"
+        - "traefik.http.routers.asmt_web.entrypoints=websecure"
+        - "traefik.http.routers.asmt_web.rule=Host(`${ASMT_APP_PATH:?ERROR ASMT_APP PATH NOT SET}.${DOMAIN}`)"
+        - "traefik.http.services.asmt_web.loadbalancer.server.port=3000"
+        - "traefik.http.services.asmt_web.loadbalancer.server.scheme=http"
+        # - "traefik.http.routers.idm_web.priority=5"
+    networks:
+      - edge 
+    environment:
+      - VITE_APP_APPLICATION_BACKEND_URL=${VITE_APP_APPLICATION_BACKEND_URL:?ERROR VITE_APP_APPLICATION_BACKEND_URL NOT SET}
+      - VITE_APP_APPLICATION_FRONTEND_URL=${VITE_APP_APPLICATION_FRONTEND_URL:?ERROR VITE_APP_APPLICATION_FRONTEND_URL NOT SET}
+      - VITE_APP_BACK_OFFICE_FRONTEND_URL=${VITE_APP_BACK_OFFICE_FRONTEND_URL:?ERROR VITE_APP_BACK_OFFICE_FRONTEND_URL NOT SET}
+      - VITE_APP_DEV_ASSESSMENT_URL=${VITE_APP_DEV_ASSESSMENT_URL:?ERROR VITE_APP_DEV_ASSESSMENT_URL NOT SET}
+      - VITE_APP_DEV_AUTH_URL=${VITE_APP_DEV_AUTH_URL:?ERROR VITE_APP_DEV_AUTH_URL NOT SET}
+      - VITE_APP_EDUCATOR_FRONTEND_URL=${VITE_APP_EDUCATOR_FRONTEND_URL:?ERROR VITE_APP_EDUCATOR_FRONTEND_URL NOT SET}
+      - VITE_APP_IDM_FRONTEND_URL=${VITE_APP_IDM_FRONTEND_URL:?ERROR VITE_APP_IDM_FRONTEND_URL NOT SET}
+      - VITE_APP_TALENT_FRONTEND_URL=${VITE_APP_TALENT_FRONTEND_URL:?ERROR VITE_APP_TALENT_FRONTEND_URL NOT SET}
+      - VITE_APP_KC_CLIENT_SECRET=${VITE_APP_KC_CLIENT_SECRET:?ERROR VITE_APP_KC_CLIENT_SECRET NOT SET}
+      - VITE_APP_KC_REALM=${VITE_APP_KC_REALM:?ERROR VITE_APP_KC_REALM NOT SET}
+      - VITE_APP_KC_CLIENT_ID=${VITE_APP_KC_CLIENT_ID:?ERROR VITE_APP_KC_CLIENT_ID NOT SET}
+      - VITE_APP_KC_URL=${VITE_APP_KC_URL:?ERROR VITE_APP_KC_URL NOT SET}
+      - VITE_APP_AWS_SECRET_ACCESS_KEY=${VITE_APP_AWS_SECRET_ACCESS_KEY:?ERROR VITE_APP_AWS_SECRET_ACCESS_KEY NOT SET}
+      - VITE_APP_AWS_REGION=${VITE_APP_AWS_REGION:?ERROR VITE_APP_AWS_REGION NOT SET}
+      - VITE_APP_AWS_BUCKET=${VITE_APP_AWS_BUCKET:?ERROR VITE_APP_AWS_BUCKET NOT SET}
+      - VITE_APP_AWS_ACCESS_KEY=${VITE_APP_AWS_ACCESS_KEY:?ERROR VITE_APP_AWS_ACCESS_KEY NOT SET}
+      - VITE_APP_API_KEY=${VITE_APP_API_KEY:?ERROR VITE_APP_API_KEY NOT SET}
+      - VITE_APP_GOOGLE_CLIENT_ID=${VITE_APP_GOOGLE_CLIENT_ID:?ERROR VITE_APP_GOOGLE_CLIENT_ID NOT SET}
+      - VITE_APP_GOOGLE_KEY=${VITE_APP_GOOGLE_KEY:?ERROR VITE_APP_GOOGLE_KEY NOT SET}
+      - VITE_APP_LINKEDIN_CLIENT_ID=${VITE_APP_LINKEDIN_CLIENT_ID:?ERROR VITE_APP_LINKEDIN_CLIENT_ID NOT SET}
+      - VITE_APP_LINKEDIN_STATE=${VITE_APP_LINKEDIN_STATE:?ERROR VITE_APP_LINKEDIN_STATE NOT SET}
+
+
+###########################################################################################################
+# APPLICATION API
+###########################################################################################################
+  asmt_api:
+    image: ${ASMT_API_IMAGE:?ERROR ASMT_API_IMAGE NOT SET}
+    deploy:
+      # resources:
+        # limits:
+        #   cpus: "0.20"
+        #   memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+    networks:
+      - edge
+      - stg_enum_frontend_net
+      - stg_enum_backend_net
+      - stg_enum_postgres_net
+      - stg_enum_mongodb_net
+    environment:
+      - PORT = ${ASMT_API_PORT}
+      - PROFILE = ${ASMT_API_PROFILE}
+      - ASSESSMENT_SERVICE_APPLICATION_NAME=${ASMT_APP_NAME}
+      - CLIENT_ID=${ASMT_CLIENT_ID}
+      - CLIENT_SECRET=${ASMT_CLIENT_SECRET}
+      - DATABASE_NAME=${ASMT_DATABASE:?ERROR ASMT_DATABASE NOT SET}
+      # - DATABASE_URL=mongodb://enumverse:siD9JzMcKQ51uglf@mongo.enum.africa:27018/enum-assessment-management-prod?authSource=admin
+      - DATABASE_URL=mongodb://${ASMT_MONGO_USERNAME:?ERROR ASMT_MONGO_USERNAME NOT SET}:${ASMT_MONGO_PASSWORD:?ERROR ASMT_MONGO_PASSWORD NOT SET}@${ASMT_MONGO_SERVERS:?ERROR ASMT_MONGO_SERVERS NOT SET}/${ASMT_DATABASE:?ERROR ASMT_DATABASE NOT SET}?${ASMT_MONGO_SERVER_OPTS:?ERROR ASMT_MONGO_SERVER_OPTS NOT SET} 
+      - KEYCLOAK_PASSWORD=${ASMT_KEYCLOAK_PASSWORD:?ERROR ASMT_KEYCLOAK_PASSWORD NOT SET} # 2ylBeTFTXcQIEraxwwtee
+      - KEYCLOAK_REALM=${ASMT_KEYCLOAK_REALM:?ERROR ASMT_KEYCLOAK_REALM NOT SET} #enumverse-prod
+      - KEYCLOAK_SERVER_URL=${ASMT_KEYCLOAK_SERVER:?ERROR ASMT_KEYCLOAK_SERVER NOT SET} #https://mantra.enum.africa
+      - KEYCLOAK_USERNAME=${ASMT_KEYCLOAK_USERNAME:?ERROR ASTM_KEYCLOAK_USERNAME NOT SET} #dsakjhdsfkjhf
+      - PULSAR_URL=${ASMT_PULSAR_URL:?ERROR ASMT_PULSAR_URL NOT SET} # pulsar://broker-prod:6650
+      - SWAGGER_SERVER_URL=${ASMT_SWAGGER_SERVER:?ERROR ASMT_SWAGGER SERVER NOT SET} #https://enumverse.com/assessment
+      - ENUM_EMAIL=${ASMT_EMAIL:?ERROR ASMT_EMAIL NOT SET} #noreply-dev+support@numverse.com
+      - SUPPORT_EMAIL=${ASMT_SUPPORT_EMAIL:?ERROR ASMT_SUPPORT_EMAIL NOT SET} #techsupport@enumverse.com
+    labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.asmt_api.entrypoints=websecure"
+        - "traefik.http.routers.asmt_api.tls=true"
+        - "traefik.http.routers.asmt_api.rule=Host(`${DOMAIN:?ERROR DOMAIN NOT SET}`) && PathPrefix(`/${ASMT_APP_PATH:?ERROR ASMT_APP_PATH NOT SET}/`)"
+        - "traefik.http.routers.asmt_api.tls.certresolver=cloudflare"
+        - "traefik.http.services.asmt_api.loadbalancer.server.port=8080"
+        - "traefik.http.services.asmt_api.loadbalancer.server.scheme=http"
+        - "traefik.http.routers.asmt_api.middlewares=asmtreplacepathregex"
+        - "traefik.http.middlewares.asmtreplacepathregex.replacepathregex.regex=^${ASMT_APP_PATH}/(.*)"
+        - "traefik.http.middlewares.asmtreplacepathregex.replacepathregex.replacement=^${ASMT_API_PATH_PREFIX:?ERROR ASMT_API_PATH_PREFIX NOT SET}/$$1"
+        - "traefik.docker.network=edge"
+        # - "traefik.http.routers.asmt_api.rule=Host(`enumverse.dev/identity`)"
+        # - "traefik.http.routers.asmt_api.middlewares=idmstripprefix"
+        # - "traefik.http.middlewares.idmstripprefix.stripprefix.prefixes=/identity"
+        # - "traefik.http.routers.asmt_api.middlewares=idmaddprefix"
+        # - "traefik.http.middlewares.idmstripprefix.idmaddprefix.prefixes=/api/v2"
+        # - "traefik.http.routers.asmt_api_http.entrypoints=web"
+        # - "traefik.http.routers.asmt_api_http.rule=Host(`idm.${DOMAIN:?ERROR DOMAIN NOT SET}`) && PathPrefix(`${IDM_APP_PATH:?ERROR IDM_APP_PATH NOT SET}/`)"
+        # - "traefik.http.services.asmt_api_http.loadbalancer.server.port=8080"
+        # - "traefik.http.routers.asmt_api_http.middlewares=idmreplacepathregex_http"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex_http.regex=^${IDM_APP_PATH}/(.*)"
+        # - "traefik.http.middlewares.idmreplacepathregex.replacepathregex_http.replacement=^${asmt_api_PATH_PREFIX:?ERROR asmt_api_PATH_PREFIX NOT SET}/$$1"
+ 
+###########################################################################################################
+# ASSESSMENT WEB
+###########################################################################################################
+  asmt_web:
+    image: ${ASMT_WEB_IMAGE:?ERROR ASMT_WEB_IMAGE NOT SET}
+    # image: nginx:latest
+    # <<: *web-healthcheck
+    deploy:
+      # resources:
+      #   limits:
+      #     cpus: "0.20"
+      #     memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.asmt_web.tls=true"
+        - "traefik.http.routers.asmt_web.tls.certresolver=cloudflare"
+        - "traefik.http.routers.asmt_web.entrypoints=websecure"
+        - "traefik.http.routers.asmt_web.rule=Host(`${ASMT_APP_PATH:?ERROR ASMT_APP PATH NOT SET}.${DOMAIN}`)"
+        - "traefik.http.services.asmt_web.loadbalancer.server.port=3000"
+        - "traefik.http.services.asmt_web.loadbalancer.server.scheme=http"
+        # - "traefik.http.routers.idm_web.priority=5"
+    networks:
+      - edge 
+    environment:
+      - VITE_APP_APPLICATION_BACKEND_URL=${VITE_APP_APPLICATION_BACKEND_URL:?ERROR VITE_APP_APPLICATION_BACKEND_URL NOT SET}
+      - VITE_APP_APPLICATION_FRONTEND_URL=${VITE_APP_APPLICATION_FRONTEND_URL:?ERROR VITE_APP_APPLICATION_FRONTEND_URL NOT SET}
+      - VITE_APP_BACK_OFFICE_FRONTEND_URL=${VITE_APP_BACK_OFFICE_FRONTEND_URL:?ERROR VITE_APP_BACK_OFFICE_FRONTEND_URL NOT SET}
+      - VITE_APP_DEV_ASSESSMENT_URL=${VITE_APP_DEV_ASSESSMENT_URL:?ERROR VITE_APP_DEV_ASSESSMENT_URL NOT SET}
+      - VITE_APP_DEV_AUTH_URL=${VITE_APP_DEV_AUTH_URL:?ERROR VITE_APP_DEV_AUTH_URL NOT SET}
+      - VITE_APP_EDUCATOR_FRONTEND_URL=${VITE_APP_EDUCATOR_FRONTEND_URL:?ERROR VITE_APP_EDUCATOR_FRONTEND_URL NOT SET}
+      - VITE_APP_IDM_FRONTEND_URL=${VITE_APP_IDM_FRONTEND_URL:?ERROR VITE_APP_IDM_FRONTEND_URL NOT SET}
+      - VITE_APP_TALENT_FRONTEND_URL=${VITE_APP_TALENT_FRONTEND_URL:?ERROR VITE_APP_TALENT_FRONTEND_URL NOT SET}
+      - VITE_APP_KC_CLIENT_SECRET=${VITE_APP_KC_CLIENT_SECRET:?ERROR VITE_APP_KC_CLIENT_SECRET NOT SET}
+      - VITE_APP_KC_REALM=${VITE_APP_KC_REALM:?ERROR VITE_APP_KC_REALM NOT SET}
+      - VITE_APP_KC_CLIENT_ID=${VITE_APP_KC_CLIENT_ID:?ERROR VITE_APP_KC_CLIENT_ID NOT SET}
+      - VITE_APP_KC_URL=${VITE_APP_KC_URL:?ERROR VITE_APP_KC_URL NOT SET}
+      - VITE_APP_AWS_SECRET_ACCESS_KEY=${VITE_APP_AWS_SECRET_ACCESS_KEY:?ERROR VITE_APP_AWS_SECRET_ACCESS_KEY NOT SET}
+      - VITE_APP_AWS_REGION=${VITE_APP_AWS_REGION:?ERROR VITE_APP_AWS_REGION NOT SET}
+      - VITE_APP_AWS_BUCKET=${VITE_APP_AWS_BUCKET:?ERROR VITE_APP_AWS_BUCKET NOT SET}
+      - VITE_APP_AWS_ACCESS_KEY=${VITE_APP_AWS_ACCESS_KEY:?ERROR VITE_APP_AWS_ACCESS_KEY NOT SET}
+      - VITE_APP_API_KEY=${VITE_APP_API_KEY:?ERROR VITE_APP_API_KEY NOT SET}
+      - VITE_APP_GOOGLE_CLIENT_ID=${VITE_APP_GOOGLE_CLIENT_ID:?ERROR VITE_APP_GOOGLE_CLIENT_ID NOT SET}
+      - VITE_APP_GOOGLE_KEY=${VITE_APP_GOOGLE_KEY:?ERROR VITE_APP_GOOGLE_KEY NOT SET}
+      - VITE_APP_LINKEDIN_CLIENT_ID=${VITE_APP_LINKEDIN_CLIENT_ID:?ERROR VITE_APP_LINKEDIN_CLIENT_ID NOT SET}
+      - VITE_APP_LINKEDIN_STATE=${VITE_APP_LINKEDIN_STATE:?ERROR VITE_APP_LINKEDIN_STATE NOT SET}
+
+
+
+
+###########################################################################################################
+# APPLICATION WEB
+###########################################################################################################
+  appl_web:
+    image: ${APPL_WEB_IMAGE:?ERROR APPL_WEB_IMAGE NOT SET}
+    # image: nginx:latest
+    # <<: *web-healthcheck
+    deploy:
+      # resources:
+      #   limits:
+      #     cpus: "0.20"
+      #     memory: 256M
+      mode: replicated
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        order: start-first
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 10s
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.appl_web.tls=true"
+        - "traefik.http.routers.appl_web.tls.certresolver=cloudflare"
+        - "traefik.http.routers.appl_web.entrypoints=websecure"
+        - "traefik.http.routers.appl_web.rule=Host(`${APPL_APP_PATH:?ERROR APPL_APP PATH NOT SET}.${DOMAIN}`)"
+        - "traefik.http.services.appl_web.loadbalancer.server.port=3000"
+        - "traefik.http.services.appl_web.loadbalancer.server.scheme=http"
+        # - "traefik.http.routers.idm_web.priority=5"
+    networks:
+      - edge 
+    environment:
+      - NEXT_PUBLIC_ASSESSMENT_API_URL=${NEXT_PUBLIC_ASSESSMENT_API_URL:?ERROR NEXT_PUBLIC_ASSESSMENT_API_URL NOT SET}
+      - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:?ERROR NEXT_PUBLIC_BASE_URL NOT SET}
+      - NEXT_PUBLIC_CREATION_FRONTEND_URL=${NEXT_PUBLIC_CREATION_FRONTEND_URL:?ERROR NEXT_PUBLIC_CREATION_FRONTEND_URL NOT SET}
+      - NEXT_PUBLIC_EDUCATOR_URL=${NEXT_PUBLIC_EDUCATOR_URL:?ERROR NEXT_PUBLIC_EDUCATOR_URL NOT SET}
+      - NEXT_PUBLIC_TALENT_FRONTEND_URL=${NEXT_PUBLIC_TALENT_FRONTEND_URL:?ERROR NEXT_PUBLIC_TALENT_FRONTEND_URL NOT SET}
+      - NEXT_PUBLIC_AWS_ACCESS_KEY=${NEXT_PUBLIC_AWS_ACCESS_KEY:?ERROR NEXT_PUBLIC_AWS_ACCESS_KEY NOT SET}
+      - NEXT_PUBLIC_AWS_BUCKET=${NEXT_PUBLIC_AWS_BUCKET:?ERROR NEXT_PUBLIC_AWS_BUCKET NOT SET}
+      - NEXT_PUBLIC_AWS_REGION=${NEXT_PUBLIC_AWS_REGION:?ERROR NEXT_PUBLIC_AWS_REGION NOT SET}
+      - NEXT_PUBLIC_AWS_SECRET_ACCESS_KEY=${NEXT_PUBLIC_AWS_SECRET_ACCESS_KEY:?ERROR NEXT_PUBLIC_AWS_SECRET_ACCESS_KEY NOT SET}
+      - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:?ERROR NEXT_PUBLIC_GOOGLE_MAPS_API_KEY NOT SET}
+      - NEXT_PUBLIC_REDUX_SECRET_KEY=${NEXT_PUBLIC_REDUX_SECRET_KEY:?ERROR NEXT_PUBLIC_REDUX_SECRET_KEY NOT SET}
 
 
   api:
@@ -257,7 +702,7 @@ services:
           cpus: "0.20"
           memory: 256M
       mode: replicated
-      replicas: 2
+      replicas: 1
       update_config:
         failure_action: rollback
         order: start-first
@@ -267,18 +712,19 @@ services:
         delay: 10s
         monitor: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
         max_attempts: 5
         window: 60s
-      # labels:
-      #   - "traefik.enable=true"
-      #   - "traefik.http.routers.webapi.entrypoints=websecure"
-      #   - "traefik.http.routers.webapi.rule=Host(`web.${DOMAIN}`) && PathPrefix(`/api`)"
-      #   - "traefik.http.routers.webapi.middlewares=myappstripprefix"
-      #   - "traefik.http.middlewares.myappstripprefix.stripprefix.prefixes=/api"
-      #   - "traefik.http.routers.webapi.tls=true"
-      #   - "traefik.http.services.webapi.loadbalancer.server.port=80"
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.webapi.entrypoints=websecure"
+        - "traefik.http.routers.webapi.rule=Host(`test.${DOMAIN}`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.webapi.tls=true"
+        - "traefik.http.routers.webapi.tls.certresolver=cloudflare"
+        - "traefik.http.services.webapi.loadbalancer.server.port=80"
+        - "traefik.http.routers.webapi.middlewares=myappstripprefix"
+        - "traefik.http.middlewares.myappstripprefix.stripprefix.prefixes=/api"
     networks:
       - edge
       - stg_enum_frontend_net
@@ -314,7 +760,8 @@ services:
       # -c wal_log_hint=on
     volumes:
       - ${CONF_VOLUME_PG:?[ERROR] CONF_VOLUME_PG NOT SET!}:/docker-entrypoint-initdb.d
-      - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg0/pgdata:/var/lib/postgresql/data
+      - pg0_vol:/var/lib/postgresql/data
+      # - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg0/pgdata:/var/lib/postgresql/data
 
   pg1:
     <<: *postgres_replica
@@ -322,7 +769,25 @@ services:
       <<: *replica_environments
       REPLICATION_SLOT: ${REPLICATION_SLOT_1?[ERROR] ENV VAR REPLICATION_SLOT_1 NOT SET}
     volumes:
-      - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg1/pgdata:/var/lib/postgresql/data
+      - pg1_vol:/var/lib/postgresql/data
+    command: |
+      bash -c "
+      if ! [ -f /var/lib/postgresql/data/init.lck ]; then 
+        until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot_1 --host=pg0 --port=5432
+        do
+        echo 'Waiting for primary to connect...'
+        sleep 1s
+        done
+        echo 'Creating lock...'
+        touch /var/lib/postgresql/data/init.lck
+        echo 'Backup done, starting replica...'
+        chmod 0700 /var/lib/postgresql/data
+      fi
+      postgres
+      # - c promote_trigger_file=''
+      "    
+
+
 
   pg2:
     <<: *postgres_replica
@@ -330,7 +795,25 @@ services:
       <<: *replica_environments
       REPLICATION_SLOT: ${REPLICATION_SLOT_2?[ERROR] ENV VAR REPLICATION_SLOT_2 NOT SET}
     volumes:
-      - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg2/pgdata:/var/lib/postgresql/data
+      - pg2_vol:/var/lib/postgresql/data
+      # - ${DATA_VOLUME_PG?[ERROR] DATA_VOLUME_PG NOT SET!}/pg2/pgdata:/var/lib/postgresql/data
+    command: |
+      bash -c "
+      if ! [ -f /var/lib/postgresql/data/init.lck ]; then 
+        until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot_2 --host=pg0 --port=5432
+        do
+        echo 'Waiting for primary to connect...'
+        sleep 1s
+        done
+        echo 'Creating lock...'
+        touch /var/lib/postgresql/data/init.lck
+        echo 'Backup done, starting replica...'
+        chmod 0700 /var/lib/postgresql/data
+      fi
+      postgres
+      # - c promote_trigger_file=''
+      "    
+
 
   pgpool:
     image: pgpool/pgpool:4.0.23
@@ -396,7 +879,7 @@ services:
         delay: 10s
         monitor: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
         max_attempts: 5
         window: 60s
@@ -422,10 +905,15 @@ services:
   pulsar-init:
     <<: *pulsar-common
     deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 3G
+      # resources:
+      #   limits:
+      #     cpus: '0.25'
+      #     memory: 3G
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 60s
     command:
       - bash
       - -c 
@@ -456,7 +944,7 @@ services:
         delay: 10s
         monitor: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
         max_attempts: 5
         window: 60s
@@ -496,7 +984,7 @@ services:
         delay: 10s
         monitor: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
         max_attempts: 5
         window: 60s
@@ -619,7 +1107,7 @@ services:
     deploy:
       replicas: 1
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 5s
         max_attempts: 5
         window: 30s
@@ -642,10 +1130,10 @@ services:
 ###########################################################################################################
   keycloak:
     image: semicolon/keycloak:26.3.1-0
-    ports:
-      - :8443
-      - :8080
-      - :9000
+    # ports:
+    #   - :8443
+    #   - :8080
+    #   - :9000
     environment:
       - TZ=Africa/Lagos
       - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:?ERROR ENV KC_BOOTSTRAP_ADMIN_USERNAME NOT SET}
@@ -692,14 +1180,15 @@ services:
         delay: 10s
         monitor: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
         max_attempts: 5
         window: 60s
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.keycloak.rule=Host(`${KC_DOMAIN:?ERROR KC_DOMAIN NOT SET}`)"
-    #   - "traefik.http.routers.keycloak.entrypoints=websecure"
-    #   - "traefik.http.routers.keycloak.tls=true"
-    #   - "traefik.http.services.keycloak.loadbalancer.server.port=${KC_HTTP_PORT:?ERROR KC_HTTP_PORT NOT SET}"
-    #   - "traefik.docker.network=edge"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.rule=Host(`${KC_DOMAIN:?ERROR KC_DOMAIN NOT SET}`)"
+      - "traefik.http.routers.keycloak.entrypoints=websecure"
+      - "traefik.http.routers.keycloak.tls=true"
+      - "traefik.http.routers.keycloak.tls.certresolver=cloudflare"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=${KC_HTTP_PORT:?ERROR KC_HTTP_PORT NOT SET}"
+      - "traefik.docker.network=edge"
